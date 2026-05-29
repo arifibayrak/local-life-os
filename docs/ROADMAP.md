@@ -18,6 +18,7 @@ Calendar stays local for now; Google sync is a later opt-in.
 | Shared UI design system | ✅ built (`public/app.css` + `public/ui.js`: modal, toasts, motion) |
 | Docs | ✅ this set |
 | **Network / People** | ✅ built (contacts by circle, strength, interaction log, editable) |
+| **Projects hub** | ✅ built — projects own linked todos + budget (Finance) + people (Network) via project_links (migration v4) |
 | Editable finance (subscriptions + transactions) | ✅ built (shared modal) |
 | Todos + Projects/Events hub | ⏳ planned |
 | Books · Learnings · Ideas · Feed | ⏳ planned |

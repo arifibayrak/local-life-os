@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>local-life-os — Projects</title>
+<link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <span class="brand">local<span class="accent">·</span>life<span class="accent">·</span>os</span>
+    <nav class="nav">
+      <a href="/">Capture</a>
+      <a href="/todos">Todos</a>
+      <a href="/projects" class="active">Projects</a>
+      <a href="/events">Events</a>
+      <a href="/ideas">Ideas</a>
+      <a href="/finance">Finance</a>
+      <a href="/network">Network</a>
+    </nav>
+  </div>
+
+  <div id="listview">
+    <div class="card">
+      <div class="formrow">
+        <input id="p-title" placeholder="new project…" style="flex:1;min-width:200px">
+        <input id="p-kind" placeholder="kind (side, coursework…)" style="width:160px">
+        <select id="p-status"><option value="active">active</option><option value="paused">paused</option><option value="done">done</option></select>
+        <button class="primary" id="add">Add</button>
+      </div>
+    </div>
+    <div class="col-grid" id="list"></div>
+  </div>
+
+  <div id="detailview" style="display:none"></div>
+</div>
+
+<script type="module">
+import { $, esc, api, toast, modal, money } from '/ui.js';
+
+const CATS = ["groceries","restaurants","transport","travel","education","housing","utilities","telecom","bills","clothing","household","tech","subscription","streaming","ai_tools","credit_cards","entertainment","health","gifts","investment","fees","income","other"];
+let allContacts = [];
+
+async function loadList(){
+  $('#detailview').style.display='none'; $('#listview').style.display='';
+  const { projects } = await api('/api/projects');
+  if(!projects.length){ $('#list').innerHTML='<p class="empty">No projects yet. Add one above.</p>'; return; }
+  $('#list').innerHTML = projects.map(card).join('');
+}
+
+function budgetStr(b){ const e=Object.entries(b); return e.length? e.map(([c,v])=>money(v,c)).join(' + ') : '—'; }
+
+function card(p){
+  const e=p.extras||{};
+  return `<div class="rec" data-open="${p.id}" style="cursor:pointer">
+    <div class="top"><strong>${esc(p.headline)}</strong><span class="pill">${esc(e.status||'active')}</span></div>
+    ${e.summary?`<div class="muted" style="font-size:12.5px;margin-top:3px">${esc(e.summary)}</div>`:''}
+    <div class="meta" style="display:flex;gap:12px;margin-top:10px;font-size:12.5px;color:var(--muted)">
+      <span>✓ ${p.todos.open}/${p.todos.total} todos</span>
+      <span>💷 ${budgetStr(p.budget)}</span>
+      <span>👥 ${p.people}</span>
+    </div>
+  </div>`;
+}
+
+$('#add').onclick = async ()=>{
+  const title=$('#p-title').value.trim(); if(!title){ toast('title required','err'); return; }
+  await api('/api/records/add',{ category:'projects', headline:title, state:'active',
+    extras:{ title, kind:$('#p-kind').value||null, status:$('#p-status').value, summary:null, key_contacts:[] } });
+  $('#p-title').value=''; $('#p-kind').value=''; toast('added','ok'); loadList();
+};
+
+async function openProject(id){
+  const d = await api('/api/projects/detail?id='+id);
+  if(!allContacts.length){ const { groups } = await api('/api/contacts'); allContacts = groups.flatMap(g=>g.contacts); }
+  const linkedIds = new Set(d.contacts.map(c=>c.id));
+  const e = d.project?.extras||{};
+  $('#listview').style.display='none';
+  const dv = $('#detailview'); dv.style.display='';
+  dv.innerHTML = `
+    <p><a href="#" id="back">← all projects</a></p>
+    <div class="card">
+      <div class="top" style="display:flex;justify-content:space-between;align-items:baseline">
+        <h2 style="margin:0;font-size:18px;text-transform:none;letter-spacing:-.01em;color:var(--text)">${esc(d.project?.headline||'')}</h2>
+        <span class="pill">${esc(e.status||'active')}</span>
+      </div>
+      ${e.summary?`<div class="muted" style="margin-top:4px">${esc(e.summary)}</div>`:''}
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <h2>Todos <button class="mini" id="add-todo" style="float:right">+ todo</button></h2>
+        <div id="d-todos"></div>
+      </div>
+      <div class="card">
+        <h2>Budget <button class="mini" id="add-exp" style="float:right">+ expense</button></h2>
+        <div id="d-budget"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>People</h2>
+      <div id="d-people"></div>
+      <div class="formrow" style="margin-top:10px">
+        <select id="link-person"><option value="">link a contact…</option>${
+          allContacts.filter(c=>!linkedIds.has(c.id)).map(c=>`<option value="${c.id}">${esc(c.name)}${c.company?' · '+esc(c.company):''}</option>`).join('')}</select>
+      </div>
+    </div>`;
+
+  $('#d-todos').innerHTML = d.todos.length ? d.todos.map(t=>`
+    <div class="sub"><span><span class="badge ${esc(t.state)}">${esc(t.state)}</span> ${esc(t.headline)}</span><span></span>
+      <button class="mini" data-unlink="task:${t.id}">×</button></div>`).join('') : '<small class="muted">no todos linked</small>';
+
+  $('#d-budget').innerHTML = (Object.keys(d.budget).length?`<div style="margin-bottom:8px">${Object.entries(d.budget).map(([c,v])=>`<span class="pill">${money(v,c)}</span>`).join(' ')}</div>`:'') +
+    (d.payments.length ? d.payments.map(p=>`
+    <div class="sub"><span>${esc(p.vendor||p.category)} <span class="pill">${esc(p.category)}</span></span>
+      <span class="num">${money(p.amount,p.currency)}</span>
+      <button class="mini" data-unlink="payment:${p.id}">×</button></div>`).join('') : '<small class="muted">no expenses linked</small>');
+
+  $('#d-people').innerHTML = d.contacts.length ? d.contacts.map(c=>`
+    <div class="sub"><span><strong>${esc(c.name)}</strong> <span class="muted" style="font-size:12px">${esc([c.role,c.company].filter(Boolean).join(' · '))}</span></span><span></span>
+      <button class="mini" data-unlink="contact:${c.id}">×</button></div>`).join('') : '<small class="muted">no people linked</small>';
+
+  $('#back').onclick = (ev)=>{ ev.preventDefault(); loadList(); };
+
+  $('#add-todo').onclick = async ()=>{
+    const v = await modal('New todo for this project', [
+      { key:'title', label:'Title' },
+      { key:'priority', label:'Priority', type:'select', options:['low','med','high'], value:'med' },
+      { key:'due_at', label:'Due', type:'date' },
+    ], { saveLabel:'Add' });
+    if(!v||!v.title) return;
+    const { id: tid } = await api('/api/records/add',{ category:'tasks', headline:v.title, state:'active', extras:{ title:v.title, priority:v.priority, due_at:v.due_at||null, context:null } });
+    await api('/api/projects/link',{ projectId:id, kind:'task', refId:tid }); toast('todo added','ok'); openProject(id);
+  };
+  $('#add-exp').onclick = async ()=>{
+    const v = await modal('New expense for this project', [
+      { key:'amount', label:'Amount', type:'number' },
+      { key:'currency', label:'Currency', type:'select', options:['GBP','TRY','USD','EUR'], value:'GBP' },
+      { key:'category', label:'Category', type:'select', options:CATS, value:'other' },
+      { key:'vendor', label:'Vendor' },
+      { key:'date', label:'Date', type:'date', value:new Date().toISOString().slice(0,10) },
+    ], { saveLabel:'Add' });
+    if(!v||!v.amount) return;
+    const { payment } = await api('/api/finance',{ amount:+v.amount, currency:v.currency, category:v.category, vendor:v.vendor, date:v.date, direction:'out' });
+    await api('/api/projects/link',{ projectId:id, kind:'payment', refId:payment.id }); toast('expense added','ok'); openProject(id);
+  };
+  $('#link-person').onchange = async (ev)=>{
+    if(!ev.target.value) return;
+    await api('/api/projects/link',{ projectId:id, kind:'contact', refId:ev.target.value }); toast('linked','ok'); openProject(id);
+  };
+  dv.querySelectorAll('button[data-unlink]').forEach(b=> b.onclick = async ()=>{
+    const [kind,refId]=b.dataset.unlink.split(':'); await api('/api/projects/unlink',{ projectId:id, kind, refId }); toast('unlinked','ok'); openProject(id);
+  });
+}
+
+document.body.addEventListener('click',(e)=>{ const c=e.target.closest('[data-open]'); if(c && !e.target.closest('button')) openProject(c.dataset.open); });
+loadList();
+</script>
+</body>
+</html>

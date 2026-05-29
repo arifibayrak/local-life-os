@@ -114,6 +114,19 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX IF NOT EXISTS idx_interactions_contact ON contact_interactions(contact_id);
   `,
+  // v4: project hub — link any entity (task / payment / contact / event) to a project.
+  // project_id and ref_id both reference rows by id across tables; kind disambiguates.
+  `
+  CREATE TABLE IF NOT EXISTS project_links (
+    id         TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    kind       TEXT NOT NULL CHECK(kind IN ('task','payment','contact','event')),
+    ref_id     TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS uniq_project_link ON project_links(project_id, kind, ref_id);
+  CREATE INDEX IF NOT EXISTS idx_project_links_project ON project_links(project_id);
+  `,
 ];
 
 export function openDb(): DB {

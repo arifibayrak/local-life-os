@@ -12,6 +12,7 @@ import { listRecords, setRecordState, addRecord, listByCategory, updateRecord } 
 import { addPayment, addPaymentsBulk, listPayments, deletePayment, updatePayment, analytics, listSubscriptions } from '../finance/store.js';
 import { parseStatement, sanitizeCategory } from '../finance/import.js';
 import { listContacts, addContact, updateContact, deleteContact, logInteraction, getInteractions } from '../network/store.js';
+import { listProjects, projectDetail, linkEntity, unlinkEntity, type LinkKind } from '../projects/store.js';
 import type { DB } from '../vault/db.js';
 import type { SessionManager } from '../session/manager.js';
 
@@ -125,6 +126,29 @@ export function startServer(manager: SessionManager, db: DB): void {
         if (!rows?.length) return send(res, 400, { error: 'no rows' });
         const clean = rows.map((r) => ({ ...r, category: sanitizeCategory(r.category) }));
         return send(res, 200, { inserted: addPaymentsBulk(db, clean) });
+      }
+
+      // ---- Projects hub ----
+      if (req.method === 'GET' && pathname === '/projects') {
+        return send(res, 200, readFileSync(join(PUBLIC, 'projects.html'), 'utf8'), 'text/html');
+      }
+      if (req.method === 'GET' && pathname === '/api/projects') {
+        return send(res, 200, { projects: listProjects(db) });
+      }
+      if (req.method === 'GET' && pathname === '/api/projects/detail') {
+        const id = url.searchParams.get('id');
+        if (!id) return send(res, 400, { error: 'id required' });
+        return send(res, 200, projectDetail(db, id));
+      }
+      if (req.method === 'POST' && pathname === '/api/projects/link') {
+        const { projectId, kind, refId } = await readJson<{ projectId?: string; kind?: LinkKind; refId?: string }>(req);
+        if (!projectId || !kind || !refId) return send(res, 400, { error: 'projectId, kind, refId required' });
+        return send(res, 200, { ok: linkEntity(db, projectId, kind, refId) });
+      }
+      if (req.method === 'POST' && pathname === '/api/projects/unlink') {
+        const { projectId, kind, refId } = await readJson<{ projectId?: string; kind?: LinkKind; refId?: string }>(req);
+        if (!projectId || !kind || !refId) return send(res, 400, { error: 'projectId, kind, refId required' });
+        return send(res, 200, { ok: unlinkEntity(db, projectId, kind, refId) });
       }
 
       // ---- Network ----
