@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>local-life-os</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { font: 15px/1.5 -apple-system, system-ui, sans-serif; max-width: 680px; margin: 0 auto; padding: 16px; }
+  header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  h1 { font-size: 18px; margin: 0; }
+  #dot { width: 9px; height: 9px; border-radius: 50%; background: #c33; }
+  #dot.ok { background: #2a2; }
+  #feed { min-height: 120px; }
+  .cap { padding: 6px 10px; margin: 4px 0; background: rgba(127,127,127,.12); border-radius: 8px; }
+  .row { display: flex; gap: 8px; margin-top: 12px; }
+  textarea { flex: 1; padding: 10px; border-radius: 8px; border: 1px solid rgba(127,127,127,.4); font: inherit; resize: vertical; }
+  button { padding: 8px 14px; border-radius: 8px; border: 0; background: #4663ff; color: #fff; cursor: pointer; font: inherit; }
+  button.ghost { background: rgba(127,127,127,.2); color: inherit; }
+  button:disabled { opacity: .5; cursor: default; }
+  .rec { margin: 8px 0; padding: 10px; border: 1px solid rgba(127,127,127,.35); border-radius: 10px; }
+  .rec .cat { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; opacity: .7; }
+  .rec pre { margin: 6px 0 0; font-size: 12px; white-space: pre-wrap; opacity: .85; }
+  .controls { display: flex; gap: 8px; margin-top: 8px; }
+  small { opacity: .65; }
+</style>
+</head>
+<body>
+  <header>
+    <span id="dot" title="model status"></span>
+    <h1>local-life-os</h1>
+    <small id="status">starting…</small>
+  </header>
+
+  <div id="feed"></div>
+  <div id="proposals"></div>
+
+  <div class="row">
+    <textarea id="box" rows="2" placeholder="Dump a thought… (Enter to send, Shift+Enter for newline)"></textarea>
+  </div>
+  <div class="row">
+    <button id="send">Capture</button>
+    <button id="mic" class="ghost">● Voice</button>
+    <button id="close" class="ghost">End session → review</button>
+  </div>
+  <p><small>Everything stays on this machine. Session auto-ends after idle; "End session" runs Qwen now.</small></p>
+
+<script type="module">
+const $ = (s) => document.querySelector(s);
+const feed = $('#feed'), proposals = $('#proposals');
+let captures = [];
+
+async function api(path, body) {
+  const opt = body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {};
+  const r = await fetch(path, opt);
+  return r.json();
+}
+
+async function health() {
+  try {
+    const h = await api('/api/health');
+    $('#dot').classList.toggle('ok', !!h.llm);
+    $('#status').textContent = h.llm ? 'model ready' : 'model offline — run: npm run model';
+  } catch { $('#status').textContent = 'daemon offline'; }
+}
+
+function renderFeed() {
+  feed.innerHTML = captures.map((c) => `<div class="cap">${c.replace(/</g,'&lt;')}</div>`).join('');
+}
+
+async function capture() {
+  const text = $('#box').value.trim();
+  if (!text) return;
+  captures.push(text); renderFeed(); $('#box').value = '';
+  await api('/api/capture', { text });
+}
+
+function renderProposals(pending) {
+  if (!pending) { proposals.innerHTML = ''; return; }
+  if (pending.records.length === 0) {
+    proposals.innerHTML = '<p><small>No records extracted from that session.</small></p>';
+    return;
+  }
+  proposals.innerHTML = '<h3>Review</h3>' + pending.records.map((r, i) => `
+    <div class="rec">
+      <div class="cat">${r.category}</div>
+      <strong>${(r.headline||'').replace(/</g,'&lt;')}</strong>
+      <pre>${JSON.stringify(r.extras, null, 2).replace(/</g,'&lt;')}</pre>
+      <label><input type="checkbox" data-i="${i}" checked> approve</label>
+    </div>`).join('') +
+    `<div class="controls"><button id="persist">Save approved</button>
+     <button id="discard" class="ghost">Discard all</button></div>`;
+
+  $('#persist').onclick = async () => {
+    const approve = [...proposals.querySelectorAll('input:checked')].map((el) => +el.dataset.i);
+    const res = await api('/api/validate', { approve });
+    captures = []; renderFeed(); renderProposals(null);
+    $('#status').textContent = `saved ${res.persisted} record(s)`;
+  };
+  $('#discard').onclick = async () => {
+    await api('/api/validate', { approve: [] });
+    captures = []; renderFeed(); renderProposals(null);
+  };
+}
+
+$('#send').onclick = capture;
+$('#box').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); capture(); }
+});
+$('#close').onclick = async () => {
+  $('#status').textContent = 'extracting with Qwen…';
+  const res = await api('/api/close', {});
+  renderProposals(res.pending);
+  $('#status').textContent = 'review the proposed records';
+};
+
+// Voice: record in-browser, POST base64 to /api/voice (needs WHISPER_BIN server-side).
+let rec, chunks = [];
+$('#mic').onclick = async () => {
+  if (rec && rec.state === 'recording') { rec.stop(); $('#mic').textContent = '● Voice'; return; }
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  rec = new MediaRecorder(stream); chunks = [];
+  rec.ondataavailable = (e) => chunks.push(e.data);
+  rec.onstop = async () => {
+    const blob = new Blob(chunks, { type: 'audio/webm' });
+    const b64 = btoa(String.fromCharCode(...new Uint8Array(await blob.arrayBuffer())));
+    $('#status').textContent = 'transcribing…';
+    const res = await api('/api/voice', { audioBase64: b64, ext: 'webm' });
+    if (res.error) { $('#status').textContent = 'voice: ' + res.error; return; }
+    captures.push(res.text); renderFeed();
+    $('#status').textContent = 'transcribed';
+  };
+  rec.start(); $('#mic').textContent = '■ Stop';
+};
+
+health(); setInterval(health, 10000);
+</script>
+</body>
+</html>

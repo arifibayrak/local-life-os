@@ -1,0 +1,26 @@
+{
+  "name": "local-life-os",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Fully on-device Personal Life OS. Local web UI -> whisper.cpp -> Qwen3.5-9B (MLX) -> git-versioned Vault. No cloud.",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx/esm \"src/**/*.test.ts\"",
+    "model": "mlx_lm.server --model ${LLM_MODEL:-mlx-community/Qwen3.5-9B-MLX-4bit} --port ${LLM_PORT:-8088}"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.7.0",
+    "dotenv": "^16.4.7",
+    "simple-git": "^3.27.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}
