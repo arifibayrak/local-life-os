@@ -9,11 +9,13 @@
     "dev": "tsx watch src/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --test --import tsx/esm \"src/**/*.test.ts\"",
-    "model": "mlx_lm.server --model ${LLM_MODEL:-mlx-community/Qwen3.5-9B-MLX-4bit} --port ${LLM_PORT:-8088}"
+    "model": "mlx_lm.server --model ${LLM_MODEL:-mlx-community/Qwen3.5-9B-MLX-4bit} --port ${LLM_PORT:-8088}",
+    "auth:google": "tsx scripts/oauth-google.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.7.0",
     "dotenv": "^16.4.7",
+    "google-auth-library": "^9.15.0",
     "simple-git": "^3.27.0",
     "xlsx": "^0.18.5",
     "zod": "^3.24.1"

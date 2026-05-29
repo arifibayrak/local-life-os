@@ -39,6 +39,11 @@ export const config = {
   },
 
   sessionIdleMinutes: num('SESSION_IDLE_MINUTES', 15),
+
+  google: {
+    clientId: optional('GOOGLE_CLIENT_ID'),
+    clientSecret: optional('GOOGLE_CLIENT_SECRET'),
+  },
 } as const;
 
 export type Config = typeof config;

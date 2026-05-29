@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>local-life-os — Calendar</title>
+<link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <span class="brand">local<span class="accent">·</span>life<span class="accent">·</span>os</span>
+    <nav class="nav" id="nav"></nav>
+  </div>
+
+  <div id="head" class="formrow" style="margin-bottom:14px"></div>
+  <div id="out"></div>
+</div>
+
+<script type="module">
+import { $, esc, api, toast, modal } from '/ui.js';
+
+let offset = 0; // weeks from current
+
+function monday(base){ const d=new Date(base); const day=(d.getDay()+6)%7; d.setHours(0,0,0,0); d.setDate(d.getDate()-day); return d; }
+function fmtDay(d){ return d.toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'}); }
+function isoLocalDay(d){ return d.toISOString().slice(0,10); }
+
+async function load(){
+  const st = await api('/api/calendar/status');
+  if(!st.configured){
+    $('#head').innerHTML='';
+    $('#out').innerHTML = `<div class="card"><h2>Google Calendar</h2><p>Add <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code> to <code>.env</code>, then restart the app.</p></div>`;
+    return;
+  }
+  if(!st.connected){
+    $('#head').innerHTML='';
+    $('#out').innerHTML = `<div class="card"><h2>Connect Google Calendar</h2>
+      <p>Run this once in a terminal, authorize in the browser, then reload this page:</p>
+      <pre style="background:var(--soft);padding:10px;border-radius:8px">cd ~/local-life-os && npm run auth:google</pre></div>`;
+    return;
+  }
+
+  const start = monday(new Date()); start.setDate(start.getDate()+offset*7);
+  const end = new Date(start); end.setDate(end.getDate()+7);
+  const label = offset===0 ? 'This week' : (offset===-1?'Last week':(offset===1?'Next week':`${fmtDay(start)} –`));
+  $('#head').innerHTML = `
+    <button class="mini" id="prev">←</button>
+    <button class="mini" id="today">Today</button>
+    <button class="mini" id="next">→</button>
+    <strong style="margin-left:6px">${label}</strong>
+    <span style="margin-left:auto"></span>
+    <button class="primary" id="addev">+ Event</button>`;
+  $('#prev').onclick=()=>{offset--;load();}; $('#next').onclick=()=>{offset++;load();}; $('#today').onclick=()=>{offset=0;load();};
+  $('#addev').onclick=addEvent;
+
+  $('#out').innerHTML = '<div class="muted">loading events…</div>';
+  let events=[];
+  try { events = (await api(`/api/calendar/events?from=${start.toISOString()}&to=${end.toISOString()}`)).events || []; }
+  catch { $('#out').innerHTML='<div class="card">could not load events</div>'; return; }
+
+  const days=[...Array(7)].map((_,i)=>{ const d=new Date(start); d.setDate(d.getDate()+i); return d; });
+  const todayStr=isoLocalDay(new Date());
+  $('#out').innerHTML = `<div class="col-grid">${days.map(d=>{
+    const ds=isoLocalDay(d);
+    const evs=events.filter(e=> (e.start||'').slice(0,10)===ds );
+    return `<div class="card" style="${ds===todayStr?'border-color:var(--accent)':''}">
+      <h2 style="${ds===todayStr?'color:var(--accent)':''}">${fmtDay(d)}</h2>
+      ${evs.length? evs.map(ev=>{
+        const t = ev.allDay ? 'all day' : new Date(ev.start).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+        return `<div class="sub" style="grid-template-columns:1fr"><div>
+          <strong style="font-size:13px">${esc(ev.summary)}</strong>
+          <div class="muted" style="font-size:11.5px">${t}${ev.location?' · '+esc(ev.location):''}${ev.htmlLink?` · <a href="${esc(ev.htmlLink)}" target="_blank" rel="noopener">open ↗</a>`:''}</div>
+        </div></div>`;
+      }).join('') : '<div class="muted" style="font-size:12px">—</div>'}
+    </div>`;
+  }).join('')}</div>`;
+}
+
+async function addEvent(){
+  const v = await modal('New calendar event', [
+    { key:'summary', label:'Title' },
+    { key:'date', label:'Date', type:'date', value:new Date().toISOString().slice(0,10) },
+    { key:'startTime', label:'Start', value:'09:00' },
+    { key:'endTime', label:'End', value:'10:00' },
+    { key:'location', label:'Location' },
+    { key:'description', label:'Notes', type:'textarea' },
+  ], { saveLabel:'Add to Google' });
+  if(!v||!v.summary||!v.date) return;
+  const start = new Date(`${v.date}T${v.startTime||'09:00'}:00`).toISOString();
+  const end = new Date(`${v.date}T${v.endTime||'10:00'}:00`).toISOString();
+  const res = await api('/api/calendar/events', { summary:v.summary, start, end, location:v.location, description:v.description });
+  if(res.error){ toast('failed: '+res.error,'err'); return; }
+  toast('added to Google Calendar','ok'); load();
+}
+
+load();
+</script>
+</body>
+</html>

@@ -68,7 +68,7 @@ export function modal(title, fields, opts = {}) {
 const NAV = [
   ['/', 'Capture'], ['/todos', 'Todos'], ['/projects', 'Projects'], ['/events', 'Events'],
   ['/ideas', 'Ideas'], ['/learnings', 'Learnings'], ['/routines', 'Routines'], ['/feed', 'Feed'],
-  ['/finance', 'Finance'], ['/network', 'Network'],
+  ['/finance', 'Finance'], ['/network', 'Network'], ['/calendar', 'Calendar'],
 ];
 export function renderNav() {
   const el = document.getElementById('nav');

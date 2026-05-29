@@ -13,6 +13,8 @@ import { addPayment, addPaymentsBulk, listPayments, deletePayment, updatePayment
 import { parseStatement, sanitizeCategory } from '../finance/import.js';
 import { listContacts, addContact, updateContact, deleteContact, logInteraction, getInteractions } from '../network/store.js';
 import { listProjects, projectDetail, linkEntity, unlinkEntity, type LinkKind } from '../projects/store.js';
+import { isConnected as gcalConnected, googleConfigured } from '../google/auth.js';
+import { listEvents as gcalList, createEvent as gcalCreate } from '../google/calendar.js';
 import type { DB } from '../vault/db.js';
 import type { SessionManager } from '../session/manager.js';
 
@@ -182,6 +184,26 @@ export function startServer(manager: SessionManager, db: DB): void {
         const { projectId, kind, refId } = await readJson<{ projectId?: string; kind?: LinkKind; refId?: string }>(req);
         if (!projectId || !kind || !refId) return send(res, 400, { error: 'projectId, kind, refId required' });
         return send(res, 200, { ok: unlinkEntity(db, projectId, kind, refId) });
+      }
+
+      // ---- Google Calendar (cloud-connected, opt-in) ----
+      if (req.method === 'GET' && pathname === '/calendar') {
+        return send(res, 200, readFileSync(join(PUBLIC, 'calendar.html'), 'utf8'), 'text/html');
+      }
+      if (req.method === 'GET' && pathname === '/api/calendar/status') {
+        return send(res, 200, { configured: googleConfigured(), connected: gcalConnected() });
+      }
+      if (req.method === 'GET' && pathname === '/api/calendar/events') {
+        const from = url.searchParams.get('from'); const to = url.searchParams.get('to');
+        if (!from || !to) return send(res, 400, { error: 'from and to required' });
+        try { return send(res, 200, { events: await gcalList(from, to) }); }
+        catch (e) { return send(res, 503, { error: String(e instanceof Error ? e.message : e) }); }
+      }
+      if (req.method === 'POST' && pathname === '/api/calendar/events') {
+        const body = await readJson<{ summary?: string; start?: string }>(req);
+        if (!body.summary || !body.start) return send(res, 400, { error: 'summary and start required' });
+        try { return send(res, 200, { event: await gcalCreate(body as { summary: string; start: string }) }); }
+        catch (e) { return send(res, 503, { error: String(e instanceof Error ? e.message : e) }); }
       }
 
       // ---- Network ----
