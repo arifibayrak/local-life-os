@@ -11,17 +11,10 @@
   <div class="topbar">
     <span class="dot" id="dot" title="model status"></span>
     <span class="brand">local<span class="accent">·</span>life<span class="accent">·</span>os</span>
-    <nav class="nav">
-      <a href="/" class="active">Capture</a>
-      <a href="/todos">Todos</a>
-      <a href="/projects">Projects</a>
-      <a href="/events">Events</a>
-      <a href="/ideas">Ideas</a>
-      <a href="/finance">Finance</a>
-      <a href="/network">Network</a>
-    </nav>
+    <nav class="nav" id="nav"></nav>
   </div>
 
+  <div id="today" class="muted" style="margin:2px 0 14px;font-size:13.5px"></div>
   <p class="statusline" id="status">starting…</p>
 
   <div id="feed"></div>
@@ -39,6 +32,7 @@
 </div>
 
 <script type="module">
+import '/ui.js';
 const $ = (s) => document.querySelector(s);
 const feed = $('#feed'), proposals = $('#proposals');
 let captures = [];
@@ -118,6 +112,16 @@ $('#mic').onclick = async () => {
   }
 };
 
+function wcode(c){ const m={0:'☀️ clear',1:'🌤 mostly clear',2:'⛅ partly cloudy',3:'☁️ overcast',45:'🌫 fog',48:'🌫 fog',51:'🌦 drizzle',53:'🌦 drizzle',55:'🌦 drizzle',61:'🌧 rain',63:'🌧 rain',65:'🌧 heavy rain',71:'🌨 snow',73:'🌨 snow',75:'🌨 snow',80:'🌦 showers',81:'🌦 showers',82:'⛈ showers',95:'⛈ thunder',96:'⛈ thunder',99:'⛈ thunder'}; return m[c]??'·'; }
+async function loadToday(){
+  try {
+    const t = await (await fetch('/api/today')).json();
+    const day = new Date(t.date).toLocaleDateString(undefined,{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+    const w = (c)=> c ? `${wcode(c.code)} ${Math.round(c.temp)}°C` : '—';
+    $('#today').innerHTML = `📅 ${day} &nbsp;·&nbsp; London ${w(t.london)} &nbsp;·&nbsp; Istanbul ${w(t.istanbul)}`;
+  } catch { $('#today').textContent=''; }
+}
+loadToday();
 health(); setInterval(health, 10000);
 </script>
 </body>

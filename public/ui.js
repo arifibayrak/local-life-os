@@ -63,6 +63,22 @@ export function modal(title, fields, opts = {}) {
   });
 }
 
+/** Render the shared top nav into <nav id="nav">, highlighting the current page.
+ *  Add a module here once and it appears on every page. */
+const NAV = [
+  ['/', 'Capture'], ['/todos', 'Todos'], ['/projects', 'Projects'], ['/events', 'Events'],
+  ['/ideas', 'Ideas'], ['/learnings', 'Learnings'], ['/routines', 'Routines'], ['/feed', 'Feed'],
+  ['/finance', 'Finance'], ['/network', 'Network'],
+];
+export function renderNav() {
+  const el = document.getElementById('nav');
+  if (!el) return;
+  const path = location.pathname;
+  el.innerHTML = NAV.map(([h, l]) => `<a href="${h}"${h === path ? ' class="active"' : ''}>${l}</a>`).join('');
+}
+// auto-run on import (deferred module → DOM is parsed)
+renderNav();
+
 /** Wire collapsible .group sections: clicking .group-head toggles .collapsed. */
 export function wireGroups(root = document) {
   root.addEventListener('click', (e) => {

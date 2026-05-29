@@ -84,6 +84,16 @@ export const categorySchemas = {
     status: z.enum(['brainstorm', 'develop', 'shipped', 'archived']).default('brainstorm'),
     tags: z.array(z.string()).default([]),
   }),
+
+  feed: z.object({
+    url: z.string().nullable().default(null),
+    kind: z.enum(['feed', 'readlater']).default('readlater'),
+    category: z.string().nullable().default(null),
+    visit_freq: z.enum(['', 'daily', 'weekly', 'occasional']).default(''),
+    status: z.enum(['queued', 'reading', 'done', 'archived']).default('queued'),
+    topic: z.string().nullable().default(null),
+    research_by: z.string().nullable().default(null),
+  }),
 } as const;
 
 export type CategoryName = keyof typeof categorySchemas;
@@ -101,6 +111,7 @@ export const categoryHints: Record<CategoryName, string> = {
   learnings: 'something the operator learned or wants to remember',
   routines: 'a recurring habit or practice',
   ideas: 'a raw idea or a problem to think through',
+  feed: 'a link/article — to read regularly (feed) or save to research later',
 };
 
 export function schemaFor(category: string) {
@@ -122,4 +133,5 @@ export const categoryFieldGuide: Record<CategoryName, string> = {
   learnings: 'summary (req), source_kind, source_name, topic_tags (string[])',
   routines: 'title (req), cadence_rrule (RRULE, req), target_per_period (number), occurrence_category, adherence_window_days (number), motivation',
   ideas: 'body (the idea/problem text), kind (idea|problem), status (brainstorm|develop|shipped), tags (string[])',
+  feed: 'url, kind (feed|readlater), category (News|Tech|Finance|Jobs|Tools), visit_freq (daily|weekly), topic',
 };

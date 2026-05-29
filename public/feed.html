@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>local-life-os — Feed</title>
+<link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <span class="brand">local<span class="accent">·</span>life<span class="accent">·</span>os</span>
+    <nav class="nav" id="nav"></nav>
+  </div>
+
+  <div class="card">
+    <div class="formrow">
+      <input id="f-url" placeholder="https://…" style="flex:1;min-width:200px">
+      <input id="f-title" placeholder="title / topic" style="width:180px">
+      <select id="f-kind"><option value="readlater">read later</option><option value="feed">recurring feed</option></select>
+      <select id="f-cat"><option value="">category…</option><option>News</option><option>Tech</option><option>Finance</option><option>Jobs</option><option>Tools</option><option>Research</option><option>Economy</option></select>
+      <select id="f-freq" style="display:none"><option value="daily">daily</option><option value="weekly">weekly</option><option value="occasional">occasional</option></select>
+      <button class="primary" id="add">Add</button>
+    </div>
+    <small class="muted">Read-later items auto-create a todo due in 14 days.</small>
+  </div>
+
+  <div id="out"></div>
+</div>
+
+<script type="module">
+import { $, esc, api, toast, wireGroups, groupBlock } from '/ui.js';
+
+const byId = new Map();
+const today = new Date().toISOString().slice(0,10);
+
+$('#f-kind').addEventListener('change', e=>{ $('#f-freq').style.display = e.target.value==='feed' ? '' : 'none'; });
+
+async function load(){
+  const { records } = await api('/api/records/by?category=feed');
+  byId.clear(); records.forEach(r=>byId.set(r.id,r));
+  if(!records.length){ $('#out').innerHTML='<p class="empty">Nothing saved yet. Add a link to read later or a feed you check regularly.</p>'; return; }
+  const later = records.filter(r=>(r.extras?.kind||'readlater')==='readlater');
+  const feed  = records.filter(r=>r.extras?.kind==='feed');
+  let html='';
+  if(later.length) html += groupBlock('read later', later.length, later.map(card).join(''));
+  if(feed.length)  html += groupBlock('feeds', feed.length, feed.map(card).join(''));
+  $('#out').innerHTML = html;
+}
+
+function card(r){
+  const e=r.extras||{};
+  const link = e.url ? `<a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(r.headline||e.url)}</a>` : esc(r.headline);
+  const meta = e.kind==='feed'
+    ? `${e.category?'<span class="pill">'+esc(e.category)+'</span> ':''}${e.visit_freq?'↻ '+esc(e.visit_freq):''}`
+    : `${e.category?'<span class="pill">'+esc(e.category)+'</span> ':''}${e.research_by?`<span class="due ${e.research_by<today?'over':''}">research by ${e.research_by}</span>`:''}`;
+  const done = r.state==='done';
+  return `<div class="rec" style="${done?'opacity:.55':''}">
+    <div class="top"><strong>${link}</strong>${done?'<span class="badge done">read</span>':''}</div>
+    <div class="muted" style="font-size:12.5px;margin-top:4px">${meta}</div>
+    <div class="acts">
+      ${e.url?`<a class="mini" href="${esc(e.url)}" target="_blank" rel="noopener" style="text-decoration:none">open ↗</a>`:''}
+      ${done?'':`<button class="mini" data-done="${r.id}">mark read</button>`}
+      <button class="mini" data-arch="${r.id}">archive</button>
+    </div>
+  </div>`;
+}
+
+$('#add').onclick = async ()=>{
+  const title = $('#f-title').value.trim() || $('#f-url').value.trim();
+  if(!title){ toast('url or title required','err'); return; }
+  const kind = $('#f-kind').value;
+  const research_by = kind==='readlater' ? new Date(Date.now()+14*864e5).toISOString().slice(0,10) : null;
+  await api('/api/records/add', { category:'feed', headline:title, state:'active',
+    extras:{ url:$('#f-url').value||null, kind, category:$('#f-cat').value||null,
+      visit_freq:kind==='feed'?$('#f-freq').value:'', status:'queued', topic:null, research_by } });
+  if(kind==='readlater'){
+    await api('/api/records/add', { category:'tasks', headline:'Read/research: '+title, state:'active',
+      extras:{ title:'Read/research: '+title, due_at:research_by, priority:'low', context:$('#f-url').value||null } });
+    toast('saved + todo in 14 days','ok');
+  } else toast('added to feed','ok');
+  ['f-url','f-title'].forEach(i=>$('#'+i).value=''); load();
+};
+
+document.body.addEventListener('click', async (e)=>{
+  const d=e.target.closest('button[data-done]'); if(d){ await api('/api/records/update',{id:d.dataset.done,state:'done'}); toast('marked read','ok'); load(); return; }
+  const a=e.target.closest('button[data-arch]'); if(a){ await api('/api/records/update',{id:a.dataset.arch,state:'archived'}); toast('archived','ok'); load(); return; }
+});
+wireGroups(); load();
+</script>
+</body>
+</html>

@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import { config } from '../config.js';
 import { log } from '../logger.js';
 import { vaultPaths } from '../vault/paths.js';
-import { llmHealthy } from '../llm/client.js';
+import { llmHealthy, chat, LlmUnavailableError, type ChatMessage } from '../llm/client.js';
 import { transcribe, TranscriptionUnavailable } from '../scribe/whisper.js';
 import { listRecords, setRecordState, addRecord, listByCategory, updateRecord } from '../vault/records.js';
 import { addPayment, addPaymentsBulk, listPayments, deletePayment, updatePayment, analytics, listSubscriptions } from '../finance/store.js';
@@ -28,6 +28,23 @@ async function readJson<T>(req: IncomingMessage): Promise<T> {
   const chunks: Buffer[] = [];
   for await (const c of req) chunks.push(c as Buffer);
   return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}') as T;
+}
+
+async function fetchWeather(lat: number, lon: number): Promise<{ temp: number; code: number } | null> {
+  try {
+    const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code`);
+    const j = (await r.json()) as { current?: { temperature_2m: number; weather_code: number } };
+    return j.current ? { temp: j.current.temperature_2m, code: j.current.weather_code } : null;
+  } catch { return null; }
+}
+let weatherCache: { at: number; london: unknown; istanbul: unknown } | null = null;
+async function today(): Promise<{ date: string; london: unknown; istanbul: unknown }> {
+  const date = new Date().toISOString();
+  if (!weatherCache || Date.now() - weatherCache.at > 900_000) {
+    const [london, istanbul] = await Promise.all([fetchWeather(51.5074, -0.1278), fetchWeather(41.0082, 28.9784)]);
+    weatherCache = { at: Date.now(), london, istanbul };
+  }
+  return { date, london: weatherCache.london, istanbul: weatherCache.istanbul };
 }
 
 export function startServer(manager: SessionManager, db: DB): void {
@@ -61,9 +78,25 @@ export function startServer(manager: SessionManager, db: DB): void {
         if (!id || !state || !allowed.includes(state)) return send(res, 400, { error: 'bad id/state' });
         return send(res, 200, { ok: setRecordState(db, id, state) });
       }
-      // Per-category record modules (Todos, Events, Ideas, …)
-      if (req.method === 'GET' && (pathname === '/todos' || pathname === '/events' || pathname === '/ideas')) {
+      // Per-category record modules (Todos, Events, Ideas, Learnings, Routines, Feed)
+      if (req.method === 'GET' && ['/todos', '/events', '/ideas', '/learnings', '/routines', '/feed'].includes(pathname)) {
         return send(res, 200, readFileSync(join(PUBLIC, `${pathname.slice(1)}.html`), 'utf8'), 'text/html');
+      }
+      // Local AI chat (talks to Qwen via MLX — stays on device)
+      if (req.method === 'POST' && pathname === '/api/chat') {
+        const { messages } = await readJson<{ messages?: ChatMessage[] }>(req);
+        if (!messages?.length) return send(res, 400, { error: 'messages required' });
+        try {
+          const reply = await chat(messages, { maxTokens: 800 });
+          return send(res, 200, { reply });
+        } catch (e) {
+          const status = e instanceof LlmUnavailableError ? 503 : 500;
+          return send(res, status, { error: String(e instanceof Error ? e.message : e) });
+        }
+      }
+      // Today + weather (the only outbound call: city coordinates to open-meteo, no personal data)
+      if (req.method === 'GET' && pathname === '/api/today') {
+        return send(res, 200, await today());
       }
       if (req.method === 'GET' && pathname === '/api/records/by') {
         const category = url.searchParams.get('category');

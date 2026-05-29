@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>local-life-os — Learnings</title>
+<link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <span class="brand">local<span class="accent">·</span>life<span class="accent">·</span>os</span>
+    <nav class="nav" id="nav"></nav>
+  </div>
+
+  <div class="card">
+    <div class="formrow">
+      <input id="l-title" placeholder="what did you learn? (topic)" style="flex:1;min-width:200px">
+      <select id="l-skind"><option value="">source…</option><option>book</option><option>person</option><option>lecture</option><option>article</option><option>podcast</option><option>self</option><option>other</option></select>
+      <input id="l-sname" placeholder="source name" style="width:140px">
+      <input id="l-tags" placeholder="tags (csv)" style="width:140px">
+      <button class="primary" id="add">Add</button>
+    </div>
+    <textarea id="l-summary" rows="2" placeholder="summary / the insight…" style="width:100%;margin-top:8px"></textarea>
+  </div>
+
+  <div class="grid-2">
+    <div id="out"></div>
+    <div class="card">
+      <h2>Discuss with AI <span class="muted" style="float:right;font-weight:400;text-transform:none;letter-spacing:0">local · Qwen</span></h2>
+      <div class="chat">
+        <div class="log" id="log"><div class="msg sys">Ask about a learning, a thought, or how an event/project is going. Click "discuss" on a card to load it here.</div></div>
+        <div class="composer">
+          <textarea id="msg" rows="1" placeholder="type a message…"></textarea>
+          <button class="primary" id="send">Send</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { $, esc, api, toast } from '/ui.js';
+
+const byId = new Map();
+const SYS = { role:'system', content:'You are a sharp, concise study and thinking partner inside the user\'s personal life OS. Discuss their learnings, ideas, and the progress of their events/projects. Ask one or two pointed questions, then offer concrete connections, gaps, or next steps. Be brief and specific.' };
+let messages = [SYS];
+
+async function load(){
+  const { records } = await api('/api/records/by?category=learnings');
+  byId.clear(); records.forEach(r=>byId.set(r.id,r));
+  $('#out').innerHTML = records.length ? records.map(card).join('') : '<p class="empty">No learnings yet. Add one above.</p>';
+}
+
+function card(r){
+  const e=r.extras||{};
+  const src = (e.source_name||e.source_kind) ? `<div class="muted" style="font-size:12.5px">via ${esc([e.source_kind,e.source_name].filter(Boolean).join(' · '))}</div>` : '';
+  const tags = (e.topic_tags||[]).map(t=>`<span class="pill">${esc(t)}</span>`).join(' ');
+  return `<div class="rec">
+    <div class="top"><strong>${esc(r.headline)}</strong></div>
+    ${e.summary?`<div style="font-size:13px;margin-top:4px">${esc(e.summary)}</div>`:''}
+    ${src}
+    ${tags?`<div class="tags" style="margin-top:6px">${tags}</div>`:''}
+    <div class="acts"><button class="mini" data-discuss="${r.id}">discuss</button></div>
+  </div>`;
+}
+
+$('#add').onclick = async ()=>{
+  const title=$('#l-title').value.trim(); if(!title){ toast('topic required','err'); return; }
+  await api('/api/records/add', { category:'learnings', headline:title, state:'active',
+    extras:{ summary:$('#l-summary').value||null, source_kind:$('#l-skind').value||null, source_name:$('#l-sname').value||null,
+      topic_tags:$('#l-tags').value.split(',').map(s=>s.trim()).filter(Boolean) } });
+  ['l-title','l-sname','l-tags','l-summary'].forEach(i=>$('#'+i).value=''); toast('added','ok'); load();
+};
+
+// ---- chat ----
+function render(){
+  $('#log').innerHTML = messages.filter(m=>m.role!=='system').map(m=>`<div class="msg ${m.role==='user'?'user':'ai'}">${esc(m.content)}</div>`).join('')
+    || '<div class="msg sys">start the conversation…</div>';
+  $('#log').scrollTop = 1e9;
+}
+async function send(text){
+  if(!text.trim()) return;
+  messages.push({ role:'user', content:text }); render();
+  $('#log').insertAdjacentHTML('beforeend','<div class="typing" id="typing">thinking…</div>'); $('#log').scrollTop=1e9;
+  try{
+    const res = await api('/api/chat', { messages });
+    $('#typing')?.remove();
+    if(res.error){ messages.push({role:'assistant',content:'(model error: '+res.error+')'}); }
+    else messages.push({ role:'assistant', content:res.reply });
+    render();
+  }catch(e){ $('#typing')?.remove(); toast('chat failed','err'); }
+}
+$('#send').onclick = ()=>{ const t=$('#msg').value; $('#msg').value=''; send(t); };
+$('#msg').addEventListener('keydown', e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); $('#send').click(); } });
+
+document.body.addEventListener('click',(e)=>{
+  const d=e.target.closest('button[data-discuss]'); if(!d) return;
+  const r=byId.get(d.dataset.discuss), x=r.extras||{};
+  messages = [SYS]; render();
+  const seed = `Let's discuss something I learned — "${r.headline}".`+(x.summary?` My note: ${x.summary}`:'')+(x.source_name?` (source: ${x.source_name})`:'');
+  $('#msg').value=''; send(seed);
+  $('#msg').focus();
+});
+
+load();
+</script>
+</body>
+</html>
