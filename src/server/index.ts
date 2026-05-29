@@ -8,7 +8,7 @@ import { log } from '../logger.js';
 import { vaultPaths } from '../vault/paths.js';
 import { llmHealthy } from '../llm/client.js';
 import { transcribe, TranscriptionUnavailable } from '../scribe/whisper.js';
-import { listRecords, setRecordState } from '../vault/records.js';
+import { listRecords, setRecordState, addRecord, listByCategory, updateRecord } from '../vault/records.js';
 import { addPayment, addPaymentsBulk, listPayments, deletePayment, updatePayment, analytics, listSubscriptions } from '../finance/store.js';
 import { parseStatement, sanitizeCategory } from '../finance/import.js';
 import { listContacts, addContact, updateContact, deleteContact, logInteraction, getInteractions } from '../network/store.js';
@@ -59,6 +59,26 @@ export function startServer(manager: SessionManager, db: DB): void {
         const allowed = ['active', 'doing', 'done', 'archived', 'snoozed', 'dismissed'];
         if (!id || !state || !allowed.includes(state)) return send(res, 400, { error: 'bad id/state' });
         return send(res, 200, { ok: setRecordState(db, id, state) });
+      }
+      // Per-category record modules (Todos, Events, Ideas, …)
+      if (req.method === 'GET' && (pathname === '/todos' || pathname === '/events' || pathname === '/ideas')) {
+        return send(res, 200, readFileSync(join(PUBLIC, `${pathname.slice(1)}.html`), 'utf8'), 'text/html');
+      }
+      if (req.method === 'GET' && pathname === '/api/records/by') {
+        const category = url.searchParams.get('category');
+        if (!category) return send(res, 400, { error: 'category required' });
+        const includeArchived = url.searchParams.get('archived') === '1';
+        return send(res, 200, { records: listByCategory(db, category, { includeArchived }) });
+      }
+      if (req.method === 'POST' && pathname === '/api/records/add') {
+        const body = await readJson<{ category?: string; headline?: string }>(req);
+        if (!body.category || !body.headline?.trim()) return send(res, 400, { error: 'category and headline required' });
+        return send(res, 200, { id: addRecord(db, body as { category: string; headline: string }) });
+      }
+      if (req.method === 'POST' && pathname === '/api/records/update') {
+        const { id, ...patch } = await readJson<{ id?: string }>(req);
+        if (!id) return send(res, 400, { error: 'id required' });
+        return send(res, 200, { ok: updateRecord(db, id, patch) });
       }
 
       // ---- Finance + Subscriptions ----

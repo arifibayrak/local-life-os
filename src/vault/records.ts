@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { DB } from './db.js';
 
 export interface RecordRow {
@@ -49,4 +50,49 @@ export function setRecordState(db: DB, id: string, state: string): boolean {
     .prepare(`UPDATE records SET state = ?, state_changed_at = ? WHERE id = ?`)
     .run(state, new Date().toISOString(), id);
   return res.changes > 0;
+}
+
+/** Ensure a synthetic session exists for records created directly in a module (not via capture). */
+function ensureManualSession(db: DB): string {
+  const now = new Date().toISOString();
+  db.prepare(`INSERT OR IGNORE INTO sessions (id, opened_at, closed_at, status) VALUES ('manual', ?, ?, 'persisted')`).run(now, now);
+  return 'manual';
+}
+
+export interface NewRecord { category: string; headline: string; notes?: string | null; extras?: Record<string, unknown>; state?: string }
+
+/** Create a record directly (module add forms). Returns its id. */
+export function addRecord(db: DB, r: NewRecord): string {
+  const id = randomUUID();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO records (id, session_id, category, created_at, state, state_changed_at, headline, notes, extras)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(id, ensureManualSession(db), r.category, now, r.state ?? 'active', now, r.headline, r.notes ?? null, JSON.stringify(r.extras ?? {}));
+  return id;
+}
+
+/** Records of one category, newest first (archived/dismissed hidden unless asked). */
+export function listByCategory(db: DB, category: string, opts?: { includeArchived?: boolean }): RecordRow[] {
+  const filter = opts?.includeArchived ? '' : `AND state NOT IN ('archived','dismissed')`;
+  const rows = db
+    .prepare(`SELECT id, category, headline, notes, extras, state, created_at FROM records WHERE category = ? ${filter} ORDER BY created_at DESC`)
+    .all(category) as Array<Omit<RecordRow, 'extras'> & { extras: string }>;
+  return rows.map((r) => {
+    let extras: Record<string, unknown> = {};
+    try { extras = JSON.parse(r.extras) as Record<string, unknown>; } catch { /* ignore */ }
+    return { ...r, extras };
+  });
+}
+
+/** Patch a record's headline/notes/extras/state. */
+export function updateRecord(db: DB, id: string, patch: { headline?: string; notes?: string | null; extras?: Record<string, unknown>; state?: string }): boolean {
+  const sets: string[] = [];
+  const args: Record<string, unknown> = { id, now: new Date().toISOString() };
+  if (patch.headline !== undefined) { sets.push('headline=@headline'); args['headline'] = patch.headline; }
+  if (patch.notes !== undefined) { sets.push('notes=@notes'); args['notes'] = patch.notes; }
+  if (patch.extras !== undefined) { sets.push('extras=@extras'); args['extras'] = JSON.stringify(patch.extras); }
+  if (patch.state !== undefined) { sets.push('state=@state'); sets.push('state_changed_at=@now'); args['state'] = patch.state; }
+  if (!sets.length) return false;
+  return db.prepare(`UPDATE records SET ${sets.join(', ')} WHERE id=@id`).run(args).changes > 0;
 }

@@ -10,8 +10,11 @@ Calendar stays local for now; Google sync is a later opt-in.
 |---|---|
 | Local capture (text + voice) | ✅ built |
 | Qwen3.5-9B extraction (8 categories) | ✅ built, verified |
-| Vault dashboard (read + state actions) | ✅ built |
-| **Finance + Subscriptions** | ✅ built (entry, CSV/XLSX import, day/week/month analytics) |
+| Vault dashboard (generic) | ⛔ deprecated — replaced by dedicated module pages (route still served) |
+| **Todos** | ✅ built (Trello-style board over `tasks`: To do/Doing/Done, priority, due) |
+| **Events** | ✅ built (Upcoming/Past cards over `events`) |
+| **Ideas / Problems** | ✅ built (notebook by status brainstorm/develop/shipped; new `ideas` vertical) |
+| **Finance + Subscriptions** | ✅ built (entry, CSV/XLSX import, day/week/month analytics, editable) |
 | Shared UI design system | ✅ built (`public/app.css` + `public/ui.js`: modal, toasts, motion) |
 | Docs | ✅ this set |
 | **Network / People** | ✅ built (contacts by circle, strength, interaction log, editable) |

@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>local-life-os — Events</title>
+<link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <span class="brand">local<span class="accent">·</span>life<span class="accent">·</span>os</span>
+    <nav class="nav">
+      <a href="/">Capture</a>
+      <a href="/todos">Todos</a>
+      <a href="/events" class="active">Events</a>
+      <a href="/ideas">Ideas</a>
+      <a href="/finance">Finance</a>
+      <a href="/network">Network</a>
+    </nav>
+  </div>
+
+  <div class="card">
+    <div class="formrow">
+      <input id="e-title" placeholder="event…" style="flex:1;min-width:180px">
+      <input id="e-kind" placeholder="kind (trip, dinner…)" style="width:150px">
+      <input id="e-date" type="date">
+      <input id="e-loc" placeholder="location" style="width:140px">
+      <button class="primary" id="add">Add</button>
+    </div>
+  </div>
+
+  <div id="out"></div>
+</div>
+
+<script type="module">
+import { $, esc, api, toast, modal, wireGroups, groupBlock } from '/ui.js';
+
+const byId = new Map();
+const today = new Date().toISOString().slice(0,10);
+
+async function load(){
+  const { records } = await api('/api/records/by?category=events');
+  byId.clear(); records.forEach(r=>byId.set(r.id,r));
+  if(!records.length){ $('#out').innerHTML='<p class="empty">No events yet. Add one above.</p>'; return; }
+  const start = r => (r.extras?.start_at||'').slice(0,10);
+  const upcoming = records.filter(r=>!start(r) || start(r)>=today).sort((a,b)=>start(a).localeCompare(start(b)));
+  const past = records.filter(r=>start(r) && start(r)<today).sort((a,b)=>start(b).localeCompare(start(a)));
+  let html='';
+  if(upcoming.length) html += groupBlock('upcoming', upcoming.length, upcoming.map(card).join(''));
+  if(past.length) html += groupBlock('past', past.length, past.map(card).join(''));
+  $('#out').innerHTML = html;
+}
+
+function card(r){
+  const e = r.extras||{};
+  const when = e.start_at ? e.start_at.slice(0,10)+(e.end_at&&e.end_at.slice(0,10)!==e.start_at.slice(0,10)?' → '+e.end_at.slice(0,10):'') : 'no date';
+  const people = (e.attended_with||[]).map(p=>`<span class="pill">${esc(p)}</span>`).join(' ');
+  return `<div class="rec">
+    <div class="top"><strong>${esc(r.headline)}</strong>${e.kind?`<span class="pill">${esc(e.kind)}</span>`:''}</div>
+    <div class="muted" style="font-size:12.5px">📅 ${when}${e.location?' · 📍 '+esc(e.location):''}</div>
+    ${people?`<div style="margin-top:6px">${people}</div>`:''}
+    <div class="acts"><button class="mini" data-edit="${r.id}">edit</button></div>
+  </div>`;
+}
+
+$('#add').onclick = async ()=>{
+  const title=$('#e-title').value.trim(); if(!title){ toast('title required','err'); return; }
+  await api('/api/records/add', { category:'events', headline:title, state:'active',
+    extras:{ title, kind:$('#e-kind').value||null, start_at:$('#e-date').value||null, end_at:null, location:$('#e-loc').value||null, attended_with:[] } });
+  $('#e-title').value=''; $('#e-kind').value=''; $('#e-date').value=''; $('#e-loc').value=''; toast('added','ok'); load();
+};
+
+async function edit(id){
+  const r=byId.get(id), e=r.extras||{};
+  const v = await modal('Edit event', [
+    { key:'title', label:'Title', value:r.headline },
+    { key:'kind', label:'Kind', value:e.kind||'' },
+    { key:'start_at', label:'Start', type:'date', value:(e.start_at||'').slice(0,10) },
+    { key:'end_at', label:'End', type:'date', value:(e.end_at||'').slice(0,10) },
+    { key:'location', label:'Location', value:e.location||'' },
+    { key:'attended_with', label:'With (csv)', value:(e.attended_with||[]).join(', ') },
+  ], { extraButtons:[{ label:'Archive', kind:'ghost', value:'archived' }] });
+  if(!v) return;
+  if(v.__action==='archived'){ await api('/api/records/update',{id,state:'archived'}); toast('archived','ok'); load(); return; }
+  await api('/api/records/update', { id, headline:v.title,
+    extras:{ title:v.title, kind:v.kind||null, start_at:v.start_at||null, end_at:v.end_at||null, location:v.location||null,
+      attended_with:v.attended_with.split(',').map(s=>s.trim()).filter(Boolean) } });
+  toast('saved','ok'); load();
+}
+
+document.body.addEventListener('click',(e)=>{ const b=e.target.closest('button[data-edit]'); if(b) edit(b.dataset.edit); });
+wireGroups(); load();
+</script>
+</body>
+</html>

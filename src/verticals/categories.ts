@@ -77,6 +77,13 @@ export const categorySchemas = {
     adherence_window_days: z.number().nullable().default(null),
     motivation: z.string().nullable().default(null),
   }),
+
+  ideas: z.object({
+    body: z.string().nullable().default(null),
+    kind: z.enum(['idea', 'problem']).default('idea'),
+    status: z.enum(['brainstorm', 'develop', 'shipped', 'archived']).default('brainstorm'),
+    tags: z.array(z.string()).default([]),
+  }),
 } as const;
 
 export type CategoryName = keyof typeof categorySchemas;
@@ -93,6 +100,7 @@ export const categoryHints: Record<CategoryName, string> = {
   finance: 'money spent or received',
   learnings: 'something the operator learned or wants to remember',
   routines: 'a recurring habit or practice',
+  ideas: 'a raw idea or a problem to think through',
 };
 
 export function schemaFor(category: string) {
@@ -113,4 +121,5 @@ export const categoryFieldGuide: Record<CategoryName, string> = {
   finance: 'amount (number, req), currency (default USD), vendor, category_label, occurred_on (ISO)',
   learnings: 'summary (req), source_kind, source_name, topic_tags (string[])',
   routines: 'title (req), cadence_rrule (RRULE, req), target_per_period (number), occurrence_category, adherence_window_days (number), motivation',
+  ideas: 'body (the idea/problem text), kind (idea|problem), status (brainstorm|develop|shipped), tags (string[])',
 };

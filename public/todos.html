@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>local-life-os — Todos</title>
+<link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <span class="brand">local<span class="accent">·</span>life<span class="accent">·</span>os</span>
+    <nav class="nav">
+      <a href="/">Capture</a>
+      <a href="/todos" class="active">Todos</a>
+      <a href="/events">Events</a>
+      <a href="/ideas">Ideas</a>
+      <a href="/finance">Finance</a>
+      <a href="/network">Network</a>
+    </nav>
+  </div>
+
+  <div class="card">
+    <div class="formrow">
+      <input id="t-title" placeholder="new task…" style="flex:1;min-width:200px">
+      <select id="t-prio"><option value="med">med</option><option value="high">high</option><option value="low">low</option></select>
+      <input id="t-due" type="date">
+      <button class="primary" id="add">Add</button>
+    </div>
+  </div>
+
+  <div class="board" id="board"></div>
+</div>
+
+<script type="module">
+import { $, esc, api, toast, modal } from '/ui.js';
+
+const COLS = [{ s:'active', label:'To do' }, { s:'doing', label:'Doing' }, { s:'done', label:'Done' }];
+const byId = new Map();
+const today = new Date().toISOString().slice(0,10);
+
+async function load(){
+  const { records } = await api('/api/records/by?category=tasks');
+  byId.clear(); records.forEach(r=>byId.set(r.id,r));
+  $('#board').innerHTML = COLS.map(c=>{
+    const items = records.filter(r=>r.state===c.s);
+    return `<div class="col">
+      <div class="col-head"><h3>${c.label}</h3><span class="count">${items.length}</span></div>
+      ${items.map(ticket).join('') || '<div class="muted" style="font-size:12.5px">—</div>'}
+    </div>`;
+  }).join('');
+}
+
+function ticket(r){
+  const e = r.extras||{};
+  const prio = e.priority ? `<span class="prio ${esc(e.priority)}">${esc(e.priority)}</span>` : '';
+  const due = e.due_at ? `<span class="due ${e.due_at.slice(0,10)<today&&r.state!=='done'?'over':''}">⏱ ${e.due_at.slice(0,10)}</span>` : '';
+  const moves = COLS.filter(c=>c.s!==r.state).map(c=>`<button class="mini" data-mv="${r.id}" data-s="${c.s}">${c.label}</button>`).join('');
+  return `<div class="ticket">
+    <div class="tt">${esc(r.headline)}</div>
+    ${e.context?`<div class="muted" style="font-size:12px;margin-top:3px">${esc(e.context)}</div>`:''}
+    <div class="meta">${prio}${due}</div>
+    <div class="acts">${moves}<button class="mini" data-edit="${r.id}">edit</button></div>
+  </div>`;
+}
+
+$('#add').onclick = async ()=>{
+  const title = $('#t-title').value.trim(); if(!title){ toast('title required','err'); return; }
+  await api('/api/records/add', { category:'tasks', headline:title, state:'active',
+    extras:{ title, priority:$('#t-prio').value, due_at:$('#t-due').value||null, context:null } });
+  $('#t-title').value=''; $('#t-due').value=''; toast('added','ok'); load();
+};
+
+async function edit(id){
+  const r = byId.get(id), e = r.extras||{};
+  const v = await modal('Edit task', [
+    { key:'title', label:'Title', value:r.headline },
+    { key:'priority', label:'Priority', type:'select', options:['low','med','high'], value:e.priority||'med' },
+    { key:'due_at', label:'Due', type:'date', value:(e.due_at||'').slice(0,10) },
+    { key:'context', label:'Context', type:'textarea', value:e.context||'' },
+    { key:'state', label:'State', type:'select', options:['active','doing','done','archived'], value:r.state },
+  ], { extraButtons:[{ label:'Archive', kind:'ghost', value:'archived' }] });
+  if(!v) return;
+  if(v.__action==='archived'){ await api('/api/records/update',{id,state:'archived'}); toast('archived','ok'); load(); return; }
+  await api('/api/records/update', { id, headline:v.title, state:v.state,
+    extras:{ title:v.title, priority:v.priority, due_at:v.due_at||null, context:v.context||null } });
+  toast('saved','ok'); load();
+}
+
+document.body.addEventListener('click', async (e)=>{
+  const mv=e.target.closest('button[data-mv]'); if(mv){ await api('/api/records/update',{id:mv.dataset.mv,state:mv.dataset.s}); load(); return; }
+  const ed=e.target.closest('button[data-edit]'); if(ed) edit(ed.dataset.edit);
+});
+load();
+</script>
+</body>
+</html>

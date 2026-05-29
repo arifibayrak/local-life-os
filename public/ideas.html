@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>local-life-os — Ideas</title>
+<link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <span class="brand">local<span class="accent">·</span>life<span class="accent">·</span>os</span>
+    <nav class="nav">
+      <a href="/">Capture</a>
+      <a href="/todos">Todos</a>
+      <a href="/events">Events</a>
+      <a href="/ideas" class="active">Ideas</a>
+      <a href="/finance">Finance</a>
+      <a href="/network">Network</a>
+    </nav>
+  </div>
+
+  <div class="card">
+    <div class="formrow">
+      <input id="i-title" placeholder="idea or problem…" style="flex:1;min-width:200px">
+      <select id="i-kind"><option value="idea">idea</option><option value="problem">problem</option></select>
+      <button class="primary" id="add">Add</button>
+    </div>
+    <textarea id="i-body" rows="2" placeholder="optional detail…" style="width:100%;margin-top:8px"></textarea>
+  </div>
+
+  <div id="out"></div>
+</div>
+
+<script type="module">
+import { $, esc, api, toast, modal, wireGroups, groupBlock } from '/ui.js';
+
+const STATUSES = ['brainstorm','develop','shipped'];
+const byId = new Map();
+
+async function load(){
+  const { records } = await api('/api/records/by?category=ideas');
+  byId.clear(); records.forEach(r=>byId.set(r.id,r));
+  if(!records.length){ $('#out').innerHTML='<p class="empty">No ideas yet. Capture a thought or a problem above.</p>'; return; }
+  $('#out').innerHTML = STATUSES.map(st=>{
+    const items = records.filter(r=>(r.extras?.status||'brainstorm')===st);
+    return items.length ? groupBlock(st, items.length, items.map(card).join('')) : '';
+  }).join('');
+}
+
+function card(r){
+  const e = r.extras||{};
+  const tags = (e.tags||[]).map(t=>`<span class="pill">${esc(t)}</span>`).join(' ');
+  const next = { brainstorm:'develop', develop:'shipped', shipped:null }[e.status||'brainstorm'];
+  return `<div class="rec">
+    <div class="top"><strong>${esc(r.headline)}</strong><span class="pill">${esc(e.kind||'idea')}</span></div>
+    ${e.body?`<div style="font-size:13px;margin-top:5px">${esc(e.body)}</div>`:''}
+    ${tags?`<div class="tags" style="margin-top:6px">${tags}</div>`:''}
+    <div class="acts">
+      ${next?`<button class="mini" data-mv="${r.id}" data-s="${next}">→ ${next}</button>`:''}
+      <button class="mini" data-edit="${r.id}">edit</button>
+    </div>
+  </div>`;
+}
+
+$('#add').onclick = async ()=>{
+  const title=$('#i-title').value.trim(); if(!title){ toast('title required','err'); return; }
+  await api('/api/records/add', { category:'ideas', headline:title, state:'active',
+    extras:{ body:$('#i-body').value||null, kind:$('#i-kind').value, status:'brainstorm', tags:[] } });
+  $('#i-title').value=''; $('#i-body').value=''; toast('added','ok'); load();
+};
+
+async function setStatus(id, status){
+  const r=byId.get(id); await api('/api/records/update',{ id, extras:{ ...r.extras, status } }); load();
+}
+
+async function edit(id){
+  const r=byId.get(id), e=r.extras||{};
+  const v = await modal('Edit', [
+    { key:'title', label:'Title', value:r.headline },
+    { key:'kind', label:'Kind', type:'select', options:['idea','problem'], value:e.kind||'idea' },
+    { key:'status', label:'Status', type:'select', options:['brainstorm','develop','shipped','archived'], value:e.status||'brainstorm' },
+    { key:'body', label:'Detail', type:'textarea', value:e.body||'' },
+    { key:'tags', label:'Tags (csv)', value:(e.tags||[]).join(', ') },
+  ], { extraButtons:[{ label:'Archive', kind:'ghost', value:'archive' }] });
+  if(!v) return;
+  if(v.__action==='archive'){ await api('/api/records/update',{id,state:'archived'}); toast('archived','ok'); load(); return; }
+  await api('/api/records/update', { id, headline:v.title,
+    extras:{ body:v.body||null, kind:v.kind, status:v.status, tags:v.tags.split(',').map(s=>s.trim()).filter(Boolean) } });
+  toast('saved','ok'); load();
+}
+
+document.body.addEventListener('click',(e)=>{
+  const mv=e.target.closest('button[data-mv]'); if(mv) return setStatus(mv.dataset.mv, mv.dataset.s);
+  const ed=e.target.closest('button[data-edit]'); if(ed) return edit(ed.dataset.edit);
+});
+wireGroups(); load();
+</script>
+</body>
+</html>
