@@ -90,19 +90,32 @@ $('#close').onclick = async () => {
 
 let rec, chunks = [];
 $('#mic').onclick = async () => {
-  if (rec && rec.state === 'recording') { rec.stop(); $('#mic').textContent = '● Voice'; return; }
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  rec = new MediaRecorder(stream); chunks = [];
-  rec.ondataavailable = (e) => chunks.push(e.data);
-  rec.onstop = async () => {
-    const blob = new Blob(chunks, { type: 'audio/webm' });
-    const b64 = btoa(String.fromCharCode(...new Uint8Array(await blob.arrayBuffer())));
-    $('#status').textContent = 'transcribing…';
-    const res = await api('/api/voice', { audioBase64: b64, ext: 'webm' });
-    if (res.error) { $('#status').textContent = 'voice: ' + res.error; return; }
-    captures.push(res.text); renderFeed(); $('#status').textContent = 'transcribed';
-  };
-  rec.start(); $('#mic').textContent = '■ Stop';
+  try {
+    if (rec && rec.state === 'recording') { rec.stop(); $('#mic').textContent = '● Voice'; return; }
+    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+      $('#status').textContent = `mic blocked: open this at http://127.0.0.1:${location.port} (browsers block the mic on non-localhost http origins like a LAN/Tailscale IP)`;
+      return;
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    rec = new MediaRecorder(stream); chunks = [];
+    rec.ondataavailable = (e) => chunks.push(e.data);
+    rec.onstop = async () => {
+      stream.getTracks().forEach((t) => t.stop());
+      const blob = new Blob(chunks, { type: 'audio/webm' });
+      const b64 = btoa(String.fromCharCode(...new Uint8Array(await blob.arrayBuffer())));
+      $('#status').textContent = 'transcribing…';
+      try {
+        const res = await api('/api/voice', { audioBase64: b64, ext: 'webm' });
+        if (res.error) { $('#status').textContent = 'voice: ' + res.error; return; }
+        captures.push(res.text); renderFeed(); $('#status').textContent = 'transcribed: "' + res.text + '"';
+      } catch (e) { $('#status').textContent = 'transcription failed: ' + (e.message || e); }
+    };
+    rec.start(); $('#mic').textContent = '■ Stop';
+  } catch (err) {
+    const m = err && err.name === 'NotAllowedError' ? 'microphone permission denied — allow it in the browser'
+            : 'mic error: ' + (err.message || err);
+    $('#status').textContent = m;
+  }
 };
 
 health(); setInterval(health, 10000);
