@@ -202,6 +202,31 @@ tbody tr:hover { background: var(--soft); }
 
 .empty { color: var(--muted); text-align: center; padding: 36px 0; }
 
+/* ---- Calendar (Google-style week grid) ---- */
+.cal-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.cal-wrap { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--surface); box-shadow: var(--shadow); }
+.cal-head { display: grid; grid-template-columns: 54px repeat(7, 1fr); border-bottom: 1px solid var(--line); }
+.cal-head .dh { text-align: center; padding: 7px 2px; border-left: 1px solid var(--soft); }
+.cal-head .dh:first-child { border-left: 0; }
+.cal-head .dh .dow { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.cal-head .dh .dnum { font-size: 19px; font-weight: 600; margin-top: 2px; line-height: 30px; }
+.cal-head .dh.today .dnum { color: #fff; background: var(--accent); border-radius: 50%; width: 30px; height: 30px; display: inline-block; }
+.cal-allday { display: grid; grid-template-columns: 54px repeat(7, 1fr); border-bottom: 1px solid var(--line); min-height: 22px; }
+.cal-allday .adg { font-size: 9.5px; color: var(--muted); text-align: right; padding: 3px 5px; align-self: center; }
+.cal-allday .adc { border-left: 1px solid var(--soft); padding: 2px; }
+.cal-chip { display: block; font-size: 10.5px; background: var(--accent-weak); color: var(--accent); border-radius: 5px; padding: 1px 6px; margin: 1px 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; cursor: pointer; }
+.cal-scroll { overflow-y: auto; max-height: 66vh; }
+.cal-body { display: grid; grid-template-columns: 54px repeat(7, 1fr); position: relative; }
+.cal-gutter .hr { height: 48px; font-size: 10px; color: var(--muted); text-align: right; padding-right: 6px; box-sizing: border-box; transform: translateY(-6px); }
+.cal-col { position: relative; border-left: 1px solid var(--soft); background: repeating-linear-gradient(to bottom, transparent 0 47px, var(--line) 47px 48px); cursor: pointer; }
+.cal-ev { position: absolute; border-radius: 6px; padding: 2px 5px; font-size: 11px; overflow: hidden; background: var(--accent-weak); border-left: 3px solid var(--accent); color: var(--text); line-height: 1.2; box-sizing: border-box; }
+.cal-ev:hover { filter: brightness(.97); z-index: 3; box-shadow: var(--shadow); }
+.cal-ev.past { opacity: .5; }
+.cal-ev .ttl { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-ev .tm { font-size: 9.5px; color: var(--muted); }
+.cal-now { position: absolute; left: 0; right: 0; height: 2px; background: #e0533c; z-index: 4; }
+.cal-now::before { content: ''; position: absolute; left: -4px; top: -3px; width: 8px; height: 8px; border-radius: 50%; background: #e0533c; }
+
 /* ---- AI chat box ---- */
 .chat { display: flex; flex-direction: column; height: 64vh; min-height: 360px; }
 .chat .log { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 9px; padding: 4px 2px; }
