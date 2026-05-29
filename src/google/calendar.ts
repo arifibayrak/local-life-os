@@ -35,19 +35,32 @@ export async function listEvents(timeMin: string, timeMax: string): Promise<CalE
   return (json.items ?? []).map(mapEvent);
 }
 
-export interface NewCalEvent { summary: string; start: string; end?: string; location?: string; description?: string }
+export interface NewCalEvent { summary: string; allDay?: boolean; start: string; end?: string; location?: string; description?: string }
 
-/** Create an event on the primary calendar. start/end are ISO datetimes. */
+/** Create an event. Timed: start/end are ISO datetimes. All-day: start/end are
+ *  'YYYY-MM-DD' (end inclusive — Google's end.date is exclusive, handled here). */
 export async function createEvent(ev: NewCalEvent): Promise<CalEvent> {
   const token = await getAccessToken();
-  const start = ev.start;
-  const end = ev.end || new Date(new Date(start).getTime() + 3600_000).toISOString();
+  let start: Record<string, string>;
+  let end: Record<string, string>;
+  if (ev.allDay) {
+    const startDate = ev.start.slice(0, 10);
+    const endIncl = (ev.end || ev.start).slice(0, 10);
+    const endExcl = new Date(new Date(`${endIncl}T00:00:00Z`).getTime() + 86_400_000).toISOString().slice(0, 10);
+    start = { date: startDate };
+    end = { date: endExcl };
+  } else {
+    const startDt = ev.start;
+    const endDt = ev.end || new Date(new Date(startDt).getTime() + 3600_000).toISOString();
+    start = { dateTime: startDt };
+    end = { dateTime: endDt };
+  }
   const body = {
     summary: ev.summary,
     location: ev.location || undefined,
     description: ev.description || undefined,
-    start: { dateTime: start },
-    end: { dateTime: end },
+    start,
+    end,
   };
   const res = await fetch(API, {
     method: 'POST',

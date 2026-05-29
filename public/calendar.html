@@ -99,22 +99,49 @@ async function load(){
     addEvent(col.dataset.day, `${hh}:${mm}`); });
 }
 
+function eventModal(prefill){
+  return new Promise(resolve=>{
+    const back=document.createElement('div'); back.className='modal-backdrop';
+    back.innerHTML=`<div class="modal"><h3>New event</h3>
+      <div class="field"><label>Title</label><input id="m-sum" autofocus></div>
+      <div class="field"><label>All-day</label><label style="justify-self:start"><input type="checkbox" id="m-all"> spans full day(s)</label></div>
+      <div class="field"><label>Start</label><div style="display:flex;gap:6px"><input id="m-sd" type="date" style="flex:1"><input id="m-st" class="tf" type="time" value="${prefill.time}" style="width:120px"></div></div>
+      <div class="field"><label>End</label><div style="display:flex;gap:6px"><input id="m-ed" type="date" style="flex:1"><input id="m-et" class="tf" type="time" value="${prefill.endTime}" style="width:120px"></div></div>
+      <div class="field"><label>Location</label><input id="m-loc"></div>
+      <div class="field"><label>Notes</label><textarea id="m-note" rows="3"></textarea></div>
+      <div class="actions"><button class="btn ghost" id="m-cancel">Cancel</button><button class="btn" id="m-save">Add to Google</button></div>
+    </div>`;
+    document.body.appendChild(back);
+    const q=(s)=>back.querySelector(s);
+    q('#m-sd').value=prefill.date; q('#m-ed').value=prefill.date;
+    q('#m-all').onchange=(e)=>back.querySelectorAll('.tf').forEach(t=>t.style.display=e.target.checked?'none':'');
+    q('#m-sd').onchange=()=>{ if(q('#m-ed').value<q('#m-sd').value) q('#m-ed').value=q('#m-sd').value; };
+    const close=(v)=>{ back.remove(); resolve(v); };
+    back.addEventListener('click',e=>{ if(e.target===back) close(null); });
+    q('#m-cancel').onclick=()=>close(null);
+    q('#m-save').onclick=()=>{
+      const summary=q('#m-sum').value.trim(); if(!summary){ toast('title required','err'); return; }
+      close({ summary, allDay:q('#m-all').checked, sd:q('#m-sd').value, st:q('#m-st').value, ed:q('#m-ed').value||q('#m-sd').value, et:q('#m-et').value, location:q('#m-loc').value, description:q('#m-note').value });
+    };
+    setTimeout(()=>q('#m-sum').focus(),0);
+  });
+}
+
 async function addEvent(date, startTime){
   const d = date || new Date().toISOString().slice(0,10);
   const t = startTime || '09:00';
   const endT = `${String(Math.min(23,+t.slice(0,2)+1)).padStart(2,'0')}:${t.slice(3)}`;
-  const v = await modal('New event', [
-    { key:'summary', label:'Title' },
-    { key:'date', label:'Date', type:'date', value:d },
-    { key:'startTime', label:'Start', value:t },
-    { key:'endTime', label:'End', value:endT },
-    { key:'location', label:'Location' },
-    { key:'description', label:'Notes', type:'textarea' },
-  ], { saveLabel:'Add to Google' });
-  if(!v||!v.summary||!v.date) return;
-  const start = new Date(`${v.date}T${v.startTime||'09:00'}:00`).toISOString();
-  const end = new Date(`${v.date}T${v.endTime||'10:00'}:00`).toISOString();
-  const res = await api('/api/calendar/events',{ summary:v.summary, start, end, location:v.location, description:v.description });
+  const v = await eventModal({ date:d, time:t, endTime:endT });
+  if(!v) return;
+  let payload;
+  if(v.allDay){
+    payload = { summary:v.summary, allDay:true, start:v.sd, end:v.ed, location:v.location, description:v.description };
+  } else {
+    const start = new Date(`${v.sd}T${v.st||'09:00'}:00`).toISOString();
+    const end = new Date(`${v.ed}T${v.et||'10:00'}:00`).toISOString();
+    payload = { summary:v.summary, start, end, location:v.location, description:v.description };
+  }
+  const res = await api('/api/calendar/events', payload);
   if(res.error){ toast('failed: '+res.error,'err'); return; }
   toast('added to Google Calendar','ok'); load();
 }
