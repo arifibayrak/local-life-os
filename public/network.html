@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>local-life-os — Network</title>
+<link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <span class="brand">local<span class="accent">·</span>life<span class="accent">·</span>os</span>
+    <nav class="nav">
+      <a href="/">Capture</a>
+      <a href="/dashboard">Vault</a>
+      <a href="/finance">Finance</a>
+      <a href="/network" class="active">Network</a>
+    </nav>
+  </div>
+
+  <div class="card">
+    <div class="formrow">
+      <input id="c-name" placeholder="name" style="width:150px">
+      <input id="c-role" placeholder="role" style="width:130px">
+      <input id="c-company" placeholder="company" style="width:140px">
+      <select id="c-circle"><option value="professional">professional</option><option value="friends">friends</option><option value="family">family</option><option value="other">other</option></select>
+      <button class="primary" id="add">Add contact</button>
+    </div>
+  </div>
+
+  <div id="out"></div>
+</div>
+
+<script type="module">
+import { $, esc, api, toast, modal } from '/ui.js';
+
+const CIRCLES = ['professional','friends','family','other'];
+const TYPES = ['coffee','call','message','meeting','event','other'];
+const STRENGTHS = ['','active','warm','cold','dormant'];
+const byId = new Map();
+
+async function load(){
+  const { groups } = await api('/api/contacts');
+  byId.clear();
+  if(!groups.length){ $('#out').innerHTML = '<p class="empty">No contacts yet. Add someone above.</p>'; return; }
+  $('#out').innerHTML = groups.map(g=>`
+    <h2 class="section-title">${esc(g.circle)} · ${g.count}</h2>
+    ${g.contacts.map(renderContact).join('')}`).join('');
+}
+
+function renderContact(c){
+  byId.set(c.id,c);
+  const sub = [c.role, c.company].filter(Boolean).join(' · ');
+  const tags = (c.tags||[]).map(t=>`<span class="pill">${esc(t)}</span>`).join(' ');
+  const last = c.last_interaction_date ? `last: ${c.last_interaction_date}${c.last_interaction_note?' — '+esc(c.last_interaction_note):''}` : 'no interactions logged';
+  return `<div class="rec">
+    <div class="top">
+      <strong>${esc(c.name)}</strong>
+      <span class="strength ${c.strength}">${c.strength} · ${c.interactions} touch${c.interactions===1?'':'es'}</span>
+    </div>
+    ${sub?`<div class="muted" style="font-size:13px">${esc(sub)}</div>`:''}
+    <div class="muted" style="font-size:12.5px;margin-top:3px">${last}</div>
+    ${tags?`<div style="margin-top:6px">${tags}</div>`:''}
+    <div class="acts">
+      <button class="mini" data-log="${c.id}">+ log</button>
+      <button class="mini" data-hist="${c.id}">history</button>
+      <button class="mini" data-edit="${c.id}">edit</button>
+    </div>
+    <div class="hist" data-histbox="${c.id}"></div>
+  </div>`;
+}
+
+$('#add').onclick = async ()=>{
+  const name = $('#c-name').value.trim(); if(!name){ toast('name required','err'); return; }
+  await api('/api/contacts', { name, role:$('#c-role').value, company:$('#c-company').value, circle:$('#c-circle').value });
+  $('#c-name').value=''; $('#c-role').value=''; $('#c-company').value='';
+  toast('added','ok'); load();
+};
+
+async function logInteraction(id){
+  const c = byId.get(id);
+  const v = await modal('Log interaction · '+esc(c.name), [
+    { key:'type', label:'Type', type:'select', options:TYPES, value:'coffee' },
+    { key:'date', label:'Date', type:'date', value:new Date().toISOString().slice(0,10) },
+    { key:'note', label:'Note', type:'textarea', value:'' },
+  ], { saveLabel:'Log' });
+  if(!v) return;
+  await api('/api/contacts/interaction', { id, ...v });
+  toast('logged','ok'); load();
+}
+
+async function editContact(id){
+  const c = byId.get(id);
+  const v = await modal('Edit · '+esc(c.name), [
+    { key:'name', label:'Name', value:c.name },
+    { key:'role', label:'Role', value:c.role },
+    { key:'company', label:'Company', value:c.company },
+    { key:'circle', label:'Circle', type:'select', options:CIRCLES, value:c.circle },
+    { key:'email', label:'Email', value:c.email },
+    { key:'phone', label:'Phone', value:c.phone },
+    { key:'linkedin', label:'LinkedIn', value:c.linkedin },
+    { key:'contact_group', label:'Group', value:c.contact_group },
+    { key:'tags', label:'Tags (csv)', value:(c.tags||[]).join(', ') },
+    { key:'strength_override', label:'Strength', type:'select', options:STRENGTHS, value:c.strength_override },
+    { key:'notes', label:'Notes', type:'textarea', value:c.notes },
+  ], { extraButtons:[{ label:'Delete', kind:'ghost', value:'delete' }] });
+  if(!v) return;
+  if(v.__action==='delete'){ await api('/api/contacts/delete',{id}); toast('deleted','ok'); load(); return; }
+  v.tags = v.tags.split(',').map(t=>t.trim()).filter(Boolean);
+  await api('/api/contacts/update', { id, ...v });
+  toast('saved','ok'); load();
+}
+
+async function showHistory(id){
+  const box = document.querySelector(`[data-histbox="${id}"]`);
+  if(box.dataset.open){ box.innerHTML=''; box.dataset.open=''; return; }
+  const { interactions } = await api('/api/contacts/interactions?id='+id);
+  box.dataset.open='1';
+  box.innerHTML = interactions.length
+    ? '<dl style="margin-top:8px;font-size:12.5px">'+interactions.map(i=>`<dt>${i.date} · ${esc(i.type)}</dt><dd>${esc(i.note)||'—'}</dd>`).join('')+'</dl>'
+    : '<div class="muted" style="font-size:12.5px;margin-top:6px">no interactions yet</div>';
+}
+
+document.body.addEventListener('click', (e)=>{
+  const log=e.target.closest('button[data-log]'); if(log) return logInteraction(log.dataset.log);
+  const ed=e.target.closest('button[data-edit]'); if(ed) return editContact(ed.dataset.edit);
+  const h=e.target.closest('button[data-hist]'); if(h) return showHistory(h.dataset.hist);
+});
+
+load();
+</script>
+</body>
+</html>

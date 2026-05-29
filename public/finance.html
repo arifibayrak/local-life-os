@@ -14,6 +14,7 @@
       <a href="/">Capture</a>
       <a href="/dashboard">Vault</a>
       <a href="/finance" class="active">Finance</a>
+      <a href="/network">Network</a>
     </nav>
   </div>
 
@@ -69,19 +70,14 @@
 </div>
 
 <script type="module">
-const $ = (s) => document.querySelector(s);
-const api = async (p, body) => (await fetch(p, body ? {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)} : {})).json();
-const esc = (s) => String(s ?? '').replace(/</g,'&lt;');
-const money = (n, c) => (c==='GBP'?'£':c==='TRY'?'₺':c==='EUR'?'€':c==='USD'?'$':c+' ') + Number(n||0).toLocaleString(undefined,{maximumFractionDigits:2});
-let CATS = [];
+import { $, esc, api, toast, modal, money } from '/ui.js';
+
+const CATS = ["groceries","restaurants","transport","travel","education","housing","utilities","telecom","bills","clothing","household","tech","subscription","streaming","ai_tools","credit_cards","entertainment","health","gifts","investment","fees","income","other"];
 let period = 'month';
 const ccy = 'GBP';
+const byId = new Map();   // id -> payment (for edit)
 
-async function loadCategories(){
-  await fetch('/api/finance/analytics?period=month');
-  CATS = ["groceries","restaurants","transport","travel","education","housing","utilities","telecom","bills","clothing","household","tech","subscription","streaming","ai_tools","credit_cards","entertainment","health","gifts","investment","fees","income","other"];
-  $('#f-cat').innerHTML = CATS.map(c=>`<option>${c}</option>`).join('');
-}
+$('#f-cat').innerHTML = CATS.map(c=>`<option>${c}</option>`).join('');
 
 async function loadAll(){ await Promise.all([loadAnalytics(), loadSubs(), loadTxns(), loadStats()]); }
 
@@ -89,7 +85,7 @@ async function loadStats(){
   const month = new Date().toISOString().slice(0,7);
   const { payments } = await api('/api/finance?month='+month);
   let out=0,inc=0;
-  for(const p of payments){ if(p.currency!==ccy) continue; if(p.direction==='out') out+=p.amount; else inc+=p.amount; }
+  for(const p of payments){ if(p.currency!==ccy) continue; (p.direction==='out') ? out+=p.amount : inc+=p.amount; }
   $('#stats').innerHTML = `
     <div class="stat"><div class="k">This month out</div><div class="v out">${money(out,ccy)}</div></div>
     <div class="stat"><div class="k">This month in</div><div class="v in">${money(inc,ccy)}</div></div>
@@ -109,21 +105,23 @@ async function loadAnalytics(){
 
 async function loadSubs(){
   const { items, totals } = await api('/api/finance/subscriptions');
+  items.forEach(s=>byId.set(s.id,s));
   $('#subtotals').innerHTML = Object.entries(totals).map(([c,t])=>`<span class="pill">${c}: ${money(t.monthly,c)}/mo · ${money(t.yearly,c)}/yr</span>`).join(' ') || '<small class="muted">no subscriptions</small>';
   $('#subs').innerHTML = items.map(s=>`
     <div class="sub">
       <span><strong>${esc(s.vendor||s.description||s.category)}</strong> <span class="pill">${esc(s.category)}</span></span>
-      <span class="num">${money(s.amount,s.currency)}/${s.recurring_freq==='yearly'?'yr':'mo'}</span>
-      <span class="num"><small class="muted">renews ${s.nextRenewal}</small></span>
+      <span class="num">${money(s.amount,s.currency)}/${s.recurring_freq==='yearly'?'yr':'mo'} <small class="muted">· ${s.nextRenewal}</small></span>
+      <span><button class="mini" data-edit="${s.id}">edit</button></span>
     </div>`).join('');
 }
 
 async function loadTxns(){
   const { payments } = await api('/api/finance');
+  payments.forEach(p=>byId.set(p.id,p));
   $('#txns').innerHTML = payments.slice(0,40).map(p=>`
     <tr><td>${p.date}</td><td>${esc(p.vendor||p.description)}</td><td><span class="pill">${esc(p.category)}</span></td>
     <td class="num" style="color:${p.direction==='out'?'var(--danger)':'var(--success)'}">${p.direction==='out'?'-':'+'}${money(p.amount,p.currency)}</td>
-    <td><button class="mini" data-del="${p.id}">×</button></td></tr>`).join('');
+    <td><button class="mini" data-edit="${p.id}">edit</button></td></tr>`).join('');
 }
 
 $('#period').addEventListener('click', (e)=>{ const b=e.target.closest('button'); if(!b)return;
@@ -134,15 +132,37 @@ $('#add').onclick = async ()=>{
   const body = { amount:+$('#f-amount').value, currency:$('#f-ccy').value, date:$('#f-date').value||new Date().toISOString().slice(0,10),
     direction:$('#f-dir').value, category:$('#f-cat').value, vendor:$('#f-vendor').value, description:$('#f-desc').value,
     type:$('#f-rec').checked?'recurring':'one-time', recurring_freq:$('#f-rec').checked?$('#f-freq').value:'' };
-  if(!body.amount){ alert('amount required'); return; }
+  if(!body.amount){ toast('amount required','err'); return; }
   await api('/api/finance', body);
   $('#f-amount').value=''; $('#f-vendor').value=''; $('#f-desc').value='';
-  loadAll();
+  toast('added','ok'); loadAll();
 };
 
-document.body.addEventListener('click', async (e)=>{ const b=e.target.closest('button[data-del]'); if(!b)return;
-  await api('/api/finance/delete',{id:b.dataset.del}); loadAll(); });
+// Edit / delete any payment (subscription or transaction) via the shared modal.
+async function editPayment(id){
+  const p = byId.get(id); if(!p) return;
+  const v = await modal('Edit '+(p.type==='recurring'?'subscription':'transaction'), [
+    { key:'vendor', label:'Vendor', value:p.vendor },
+    { key:'amount', label:'Amount', type:'number', value:p.amount },
+    { key:'currency', label:'Currency', type:'select', options:['GBP','TRY','USD','EUR'], value:p.currency },
+    { key:'category', label:'Category', type:'select', options:CATS, value:p.category },
+    { key:'direction', label:'Direction', type:'select', options:['out','in'], value:p.direction },
+    { key:'date', label:'Date', type:'date', value:p.date },
+    { key:'type', label:'Type', type:'select', options:['one-time','recurring'], value:p.type },
+    { key:'recurring_freq', label:'Frequency', type:'select', options:['','monthly','yearly'], value:p.recurring_freq },
+    { key:'bill_day', label:'Bill day', type:'number', value:p.bill_day ?? '' },
+    { key:'description', label:'Description', value:p.description },
+  ], { extraButtons:[{ label:'Delete', kind:'ghost', value:'delete' }] });
+  if(!v) return;
+  if(v.__action==='delete'){ await api('/api/finance/delete',{id}); toast('deleted','ok'); loadAll(); return; }
+  v.amount=+v.amount; v.bill_day = v.bill_day===''?null:+v.bill_day;
+  await api('/api/finance/update', { id, ...v });
+  toast('saved','ok'); loadAll();
+}
 
+document.body.addEventListener('click', (e)=>{ const b=e.target.closest('button[data-edit]'); if(b) editPayment(b.dataset.edit); });
+
+// import
 $('#file').addEventListener('change', async (e)=>{
   const file = e.target.files[0]; if(!file) return;
   const b64 = btoa(String.fromCharCode(...new Uint8Array(await file.arrayBuffer())));
@@ -162,11 +182,11 @@ function renderPreview(rows){
   <div style="margin-top:8px"><button class="primary" id="commit">Import ${rows.length} transactions</button></div>`;
   $('#preview').querySelectorAll('select[data-i]').forEach(sel=> sel.onchange=()=> window._imp[+sel.dataset.i].category = sel.value);
   $('#commit').onclick = async ()=>{ const res = await api('/api/finance/import/commit', { rows: window._imp });
-    $('#preview').innerHTML = `<small class="muted">imported ${res.inserted} transactions ✓</small>`; loadAll(); };
+    $('#preview').innerHTML = `<small class="muted">imported ${res.inserted} transactions ✓</small>`; toast(`imported ${res.inserted}`,'ok'); loadAll(); };
 }
 
 $('#f-date').value = new Date().toISOString().slice(0,10);
-loadCategories().then(loadAll);
+loadAll();
 </script>
 </body>
 </html>

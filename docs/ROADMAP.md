@@ -12,9 +12,10 @@ Calendar stays local for now; Google sync is a later opt-in.
 | Qwen3.5-9B extraction (8 categories) | ✅ built, verified |
 | Vault dashboard (read + state actions) | ✅ built |
 | **Finance + Subscriptions** | ✅ built (entry, CSV/XLSX import, day/week/month analytics) |
-| Shared UI design system | ✅ built (`public/app.css`) |
+| Shared UI design system | ✅ built (`public/app.css` + `public/ui.js`: modal, toasts, motion) |
 | Docs | ✅ this set |
-| Network / People | ⏳ next candidate |
+| **Network / People** | ✅ built (contacts by circle, strength, interaction log, editable) |
+| Editable finance (subscriptions + transactions) | ✅ built (shared modal) |
 | Todos + Projects/Events hub | ⏳ planned |
 | Books · Learnings · Ideas · Feed | ⏳ planned |
 | Calendar (local grid) | ⏳ planned |

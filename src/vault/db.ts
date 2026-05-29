@@ -77,6 +77,43 @@ const MIGRATIONS: string[] = [
   CREATE INDEX IF NOT EXISTS idx_payments_category ON payments(category);
   CREATE INDEX IF NOT EXISTS idx_payments_type     ON payments(type);
   `,
+  // v3: network — contacts + interactions (ported from brain-cli).
+  // Relationship strength is computed from last_interaction_date unless overridden.
+  `
+  CREATE TABLE IF NOT EXISTS contacts (
+    id                    TEXT PRIMARY KEY,
+    name                  TEXT NOT NULL,
+    role                  TEXT NOT NULL DEFAULT '',
+    company               TEXT NOT NULL DEFAULT '',
+    email                 TEXT NOT NULL DEFAULT '',
+    phone                 TEXT NOT NULL DEFAULT '',
+    linkedin              TEXT NOT NULL DEFAULT '',
+    met_where             TEXT NOT NULL DEFAULT '',
+    met_date              TEXT NOT NULL DEFAULT '',
+    birthday              TEXT NOT NULL DEFAULT '',
+    contact_freq          TEXT NOT NULL DEFAULT '',   -- daily|weekly|monthly|quarterly|yearly
+    contact_group         TEXT NOT NULL DEFAULT '',   -- freeform cohort (e.g. "Imperial MBA")
+    circle                TEXT NOT NULL DEFAULT 'other', -- family|friends|professional|other
+    tags                  TEXT NOT NULL DEFAULT '[]', -- JSON array
+    notes                 TEXT NOT NULL DEFAULT '',
+    strength_override     TEXT NOT NULL DEFAULT '',   -- ''|active|warm|cold|dormant
+    last_interaction_date TEXT NOT NULL DEFAULT '',
+    last_interaction_note TEXT NOT NULL DEFAULT '',
+    created_at            TEXT NOT NULL,
+    updated_at            TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_contacts_circle ON contacts(circle);
+
+  CREATE TABLE IF NOT EXISTS contact_interactions (
+    id          TEXT PRIMARY KEY,
+    contact_id  TEXT NOT NULL REFERENCES contacts(id),
+    date        TEXT NOT NULL,
+    type        TEXT NOT NULL DEFAULT 'other', -- coffee|call|message|meeting|event|other
+    note        TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_interactions_contact ON contact_interactions(contact_id);
+  `,
 ];
 
 export function openDb(): DB {

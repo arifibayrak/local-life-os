@@ -71,6 +71,19 @@ export function deletePayment(db: DB, id: string): boolean {
   return db.prepare(`DELETE FROM payments WHERE id = ?`).run(id).changes > 0;
 }
 
+/** Update an existing payment (used by the editable subscriptions/transactions UI). */
+export function updatePayment(db: DB, id: string, patch: Partial<PaymentInput>): Payment | null {
+  const existing = db.prepare(`SELECT * FROM payments WHERE id = ?`).get(id) as Payment | undefined;
+  if (!existing) return null;
+  const merged = normalize({ ...existing, ...patch });
+  db.prepare(
+    `UPDATE payments SET amount=@amount, currency=@currency, date=@date, direction=@direction,
+       type=@type, category=@category, description=@description, vendor=@vendor,
+       recurring_freq=@recurring_freq, bill_day=@bill_day, notes=@notes WHERE id=@id`,
+  ).run({ ...merged, id });
+  return { ...existing, ...merged, id };
+}
+
 function bucketExpr(period: 'day' | 'week' | 'month'): string {
   if (period === 'day') return `substr(date,1,10)`;
   if (period === 'week') return `strftime('%Y-W%W', date)`;

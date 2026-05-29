@@ -9,8 +9,9 @@ import { vaultPaths } from '../vault/paths.js';
 import { llmHealthy } from '../llm/client.js';
 import { transcribe, TranscriptionUnavailable } from '../scribe/whisper.js';
 import { listRecords, setRecordState } from '../vault/records.js';
-import { addPayment, addPaymentsBulk, listPayments, deletePayment, analytics, listSubscriptions } from '../finance/store.js';
+import { addPayment, addPaymentsBulk, listPayments, deletePayment, updatePayment, analytics, listSubscriptions } from '../finance/store.js';
 import { parseStatement, sanitizeCategory } from '../finance/import.js';
+import { listContacts, addContact, updateContact, deleteContact, logInteraction, getInteractions } from '../network/store.js';
 import type { DB } from '../vault/db.js';
 import type { SessionManager } from '../session/manager.js';
 
@@ -33,8 +34,15 @@ export function startServer(manager: SessionManager, db: DB): void {
     const url = new URL(req.url ?? '/', `http://${config.host}:${config.port}`);
     const { pathname } = url;
     try {
-      if (req.method === 'GET' && pathname === '/app.css') {
-        return send(res, 200, readFileSync(join(PUBLIC, 'app.css'), 'utf8'), 'text/css');
+      // Static assets (css/js) from public/ — name-only, no path traversal.
+      const asset = pathname.match(/^\/([\w.-]+)\.(css|js)$/);
+      if (req.method === 'GET' && asset) {
+        const type = asset[2] === 'css' ? 'text/css' : 'text/javascript';
+        try {
+          return send(res, 200, readFileSync(join(PUBLIC, `${asset[1]}.${asset[2]}`), 'utf8'), type);
+        } catch {
+          return send(res, 404, { error: 'not found' });
+        }
       }
       if (req.method === 'GET' && pathname === '/') {
         return send(res, 200, readFileSync(join(PUBLIC, 'index.html'), 'utf8'), 'text/html');
@@ -72,6 +80,12 @@ export function startServer(manager: SessionManager, db: DB): void {
         if (!id) return send(res, 400, { error: 'id required' });
         return send(res, 200, { ok: deletePayment(db, id) });
       }
+      if (req.method === 'POST' && pathname === '/api/finance/update') {
+        const { id, ...patch } = await readJson<{ id?: string }>(req);
+        if (!id) return send(res, 400, { error: 'id required' });
+        const updated = updatePayment(db, id, patch);
+        return updated ? send(res, 200, { payment: updated }) : send(res, 404, { error: 'not found' });
+      }
       if (req.method === 'GET' && pathname === '/api/finance/analytics') {
         const period = (url.searchParams.get('period') ?? 'month') as 'day' | 'week' | 'month';
         const currency = url.searchParams.get('currency') ?? 'GBP';
@@ -91,6 +105,40 @@ export function startServer(manager: SessionManager, db: DB): void {
         if (!rows?.length) return send(res, 400, { error: 'no rows' });
         const clean = rows.map((r) => ({ ...r, category: sanitizeCategory(r.category) }));
         return send(res, 200, { inserted: addPaymentsBulk(db, clean) });
+      }
+
+      // ---- Network ----
+      if (req.method === 'GET' && pathname === '/network') {
+        return send(res, 200, readFileSync(join(PUBLIC, 'network.html'), 'utf8'), 'text/html');
+      }
+      if (req.method === 'GET' && pathname === '/api/contacts') {
+        return send(res, 200, { groups: listContacts(db) });
+      }
+      if (req.method === 'GET' && pathname === '/api/contacts/interactions') {
+        const id = url.searchParams.get('id');
+        if (!id) return send(res, 400, { error: 'id required' });
+        return send(res, 200, { interactions: getInteractions(db, id) });
+      }
+      if (req.method === 'POST' && pathname === '/api/contacts') {
+        const body = await readJson<{ name?: string }>(req);
+        if (!body.name?.trim()) return send(res, 400, { error: 'name required' });
+        return send(res, 200, { contact: addContact(db, body as { name: string }) });
+      }
+      if (req.method === 'POST' && pathname === '/api/contacts/update') {
+        const { id, ...patch } = await readJson<{ id?: string; name?: string }>(req);
+        if (!id) return send(res, 400, { error: 'id required' });
+        const updated = updateContact(db, id, patch as { name: string });
+        return updated ? send(res, 200, { contact: updated }) : send(res, 404, { error: 'not found' });
+      }
+      if (req.method === 'POST' && pathname === '/api/contacts/delete') {
+        const { id } = await readJson<{ id?: string }>(req);
+        if (!id) return send(res, 400, { error: 'id required' });
+        return send(res, 200, { ok: deleteContact(db, id) });
+      }
+      if (req.method === 'POST' && pathname === '/api/contacts/interaction') {
+        const { id, type, note, date } = await readJson<{ id?: string; type?: string; note?: string; date?: string }>(req);
+        if (!id) return send(res, 400, { error: 'id required' });
+        return send(res, 200, { ok: logInteraction(db, id, type ?? 'other', note ?? '', date) });
       }
       if (req.method === 'GET' && pathname === '/api/health') {
         return send(res, 200, { llm: await llmHealthy() });
