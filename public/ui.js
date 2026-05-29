@@ -63,6 +63,26 @@ export function modal(title, fields, opts = {}) {
   });
 }
 
+/** Wire collapsible .group sections: clicking .group-head toggles .collapsed. */
+export function wireGroups(root = document) {
+  root.addEventListener('click', (e) => {
+    const head = e.target.closest('.group-head');
+    if (head && !e.target.closest('button')) head.closest('.group').classList.toggle('collapsed');
+  });
+}
+
+/** Markup for a collapsible group: header (title + count + optional summary) over a card grid. */
+export function groupBlock(title, count, bodyHtml, summaryHtml = '') {
+  return `<section class="group">
+    <header class="group-head">
+      <span class="caret">▾</span>
+      <h2>${esc(title)}</h2><span class="count">${count}</span>
+      <span class="summary">${summaryHtml}</span>
+    </header>
+    <div class="group-body col-grid">${bodyHtml}</div>
+  </section>`;
+}
+
 export const money = (n, c) =>
   (c === 'GBP' ? '£' : c === 'TRY' ? '₺' : c === 'EUR' ? '€' : c === 'USD' ? '$' : c + ' ') +
   Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });

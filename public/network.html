@@ -18,6 +18,8 @@
     </nav>
   </div>
 
+  <div class="cards" id="stats"></div>
+
   <div class="card">
     <div class="formrow">
       <input id="c-name" placeholder="name" style="width:150px">
@@ -32,7 +34,7 @@
 </div>
 
 <script type="module">
-import { $, esc, api, toast, modal } from '/ui.js';
+import { $, esc, api, toast, modal, wireGroups, groupBlock } from '/ui.js';
 
 const CIRCLES = ['professional','friends','family','other'];
 const TYPES = ['coffee','call','message','meeting','event','other'];
@@ -42,25 +44,48 @@ const byId = new Map();
 async function load(){
   const { groups } = await api('/api/contacts');
   byId.clear();
-  if(!groups.length){ $('#out').innerHTML = '<p class="empty">No contacts yet. Add someone above.</p>'; return; }
-  $('#out').innerHTML = groups.map(g=>`
-    <h2 class="section-title">${esc(g.circle)} · ${g.count}</h2>
-    ${g.contacts.map(renderContact).join('')}`).join('');
+  // top stats
+  const all = groups.flatMap(g=>g.contacts);
+  const dist = { active:0, warm:0, cold:0, dormant:0 };
+  all.forEach(c=>dist[c.strength]++);
+  $('#stats').innerHTML = `
+    <div class="stat"><div class="k">Contacts</div><div class="v">${all.length}</div></div>
+    <div class="stat"><div class="k">Active · Warm</div><div class="v in">${dist.active} · ${dist.warm}</div></div>
+    <div class="stat"><div class="k">Cold · Dormant</div><div class="v">${dist.cold} · ${dist.dormant}</div></div>`;
+
+  if(!all.length){ $('#out').innerHTML = '<p class="empty">No contacts yet. Add someone above.</p>'; return; }
+  $('#out').innerHTML = groups.map(g=>{
+    const d = { active:0, warm:0, cold:0, dormant:0 };
+    g.contacts.forEach(c=>d[c.strength]++);
+    const summary = ['active','warm','cold','dormant'].filter(k=>d[k]).map(k=>`<span class="strength ${k}">${d[k]}</span>`).join(' ');
+    return groupBlock(g.circle, g.count, g.contacts.map(renderContact).join(''), summary);
+  }).join('');
 }
 
 function renderContact(c){
   byId.set(c.id,c);
-  const sub = [c.role, c.company].filter(Boolean).join(' · ');
+  const kv = [];
+  if(c.company || c.role) kv.push(['', [c.role,c.company].filter(Boolean).join(' · ')]);
+  if(c.contact_group) kv.push(['group', c.contact_group]);
+  if(c.email) kv.push(['email', c.email]);
+  if(c.phone) kv.push(['phone', c.phone]);
+  if(c.linkedin) kv.push(['linkedin', c.linkedin]);
+  if(c.met_where || c.met_date) kv.push(['met', [c.met_where,c.met_date].filter(Boolean).join(' · ')]);
+  if(c.birthday) kv.push(['birthday', c.birthday]);
+  const kvHtml = kv.filter(([k])=>k).map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
+  const roleLine = (c.role||c.company) ? `<div class="crole">${esc([c.role,c.company].filter(Boolean).join(' · '))}</div>` : '';
   const tags = (c.tags||[]).map(t=>`<span class="pill">${esc(t)}</span>`).join(' ');
-  const last = c.last_interaction_date ? `last: ${c.last_interaction_date}${c.last_interaction_note?' — '+esc(c.last_interaction_note):''}` : 'no interactions logged';
-  return `<div class="rec">
-    <div class="top">
-      <strong>${esc(c.name)}</strong>
-      <span class="strength ${c.strength}">${c.strength} · ${c.interactions} touch${c.interactions===1?'':'es'}</span>
+  const last = c.last_interaction_date
+    ? `last: ${c.last_interaction_date}${c.last_interaction_note?' — '+esc(c.last_interaction_note):''}`
+    : 'no interactions logged';
+  return `<div class="contact">
+    <div class="ctop">
+      <div><div class="cname">${esc(c.name)}</div>${roleLine}</div>
+      <span class="strength ${c.strength}">${c.strength}</span>
     </div>
-    ${sub?`<div class="muted" style="font-size:13px">${esc(sub)}</div>`:''}
-    <div class="muted" style="font-size:12.5px;margin-top:3px">${last}</div>
-    ${tags?`<div style="margin-top:6px">${tags}</div>`:''}
+    ${kvHtml?`<dl class="kv">${kvHtml}</dl>`:''}
+    <div class="muted" style="font-size:12.5px">${last} · ${c.interactions} touch${c.interactions===1?'':'es'}</div>
+    ${tags?`<div class="tags">${tags}</div>`:''}
     <div class="acts">
       <button class="mini" data-log="${c.id}">+ log</button>
       <button class="mini" data-hist="${c.id}">history</button>
@@ -99,6 +124,8 @@ async function editContact(id){
     { key:'email', label:'Email', value:c.email },
     { key:'phone', label:'Phone', value:c.phone },
     { key:'linkedin', label:'LinkedIn', value:c.linkedin },
+    { key:'met_where', label:'Met where', value:c.met_where },
+    { key:'birthday', label:'Birthday', type:'date', value:c.birthday },
     { key:'contact_group', label:'Group', value:c.contact_group },
     { key:'tags', label:'Tags (csv)', value:(c.tags||[]).join(', ') },
     { key:'strength_override', label:'Strength', type:'select', options:STRENGTHS, value:c.strength_override },
@@ -117,8 +144,8 @@ async function showHistory(id){
   const { interactions } = await api('/api/contacts/interactions?id='+id);
   box.dataset.open='1';
   box.innerHTML = interactions.length
-    ? '<dl style="margin-top:8px;font-size:12.5px">'+interactions.map(i=>`<dt>${i.date} · ${esc(i.type)}</dt><dd>${esc(i.note)||'—'}</dd>`).join('')+'</dl>'
-    : '<div class="muted" style="font-size:12.5px;margin-top:6px">no interactions yet</div>';
+    ? '<dl>'+interactions.map(i=>`<dt>${i.date} · ${esc(i.type)}</dt><dd>${esc(i.note)||'—'}</dd>`).join('')+'</dl>'
+    : '<div class="muted" style="font-size:12px;margin-top:6px">no interactions yet</div>';
 }
 
 document.body.addEventListener('click', (e)=>{
@@ -126,7 +153,7 @@ document.body.addEventListener('click', (e)=>{
   const ed=e.target.closest('button[data-edit]'); if(ed) return editContact(ed.dataset.edit);
   const h=e.target.closest('button[data-hist]'); if(h) return showHistory(h.dataset.hist);
 });
-
+wireGroups();
 load();
 </script>
 </body>

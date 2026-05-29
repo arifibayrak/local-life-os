@@ -18,7 +18,7 @@
     </nav>
   </div>
 
-  <div class="formrow" style="margin-bottom:14px">
+  <div class="formrow" style="margin-bottom:18px">
     <span class="statusline">Your Vault</span>
     <label class="statusline" style="margin-left:auto"><input type="checkbox" id="arch"> show archived</label>
   </div>
@@ -26,17 +26,14 @@
 </div>
 
 <script type="module">
-const out = document.getElementById('out');
-const esc = (s) => String(s ?? '').replace(/</g,'&lt;');
+import { esc, api, wireGroups, groupBlock } from '/ui.js';
 
 async function load() {
   const archived = document.getElementById('arch').checked ? '?archived=1' : '';
-  const { groups } = await (await fetch('/api/records' + archived)).json();
+  const { groups } = await api('/api/records' + archived);
+  const out = document.getElementById('out');
   if (!groups.length) { out.innerHTML = '<p class="empty">Nothing in the Vault yet. Capture something and approve it.</p>'; return; }
-  out.innerHTML = groups.map((g) => `
-    <h2 class="section-title">${esc(g.category)} · ${g.count}</h2>
-    ${g.records.map(renderRec).join('')}
-  `).join('');
+  out.innerHTML = groups.map((g) => groupBlock(g.category, g.count, g.records.map(renderRec).join(''))).join('');
 }
 
 function renderRec(r) {
@@ -47,8 +44,9 @@ function renderRec(r) {
   const when = (r.created_at || '').slice(0,10);
   return `<div class="rec">
     <div class="top"><strong>${esc(r.headline)}</strong>
-      <span><span class="badge ${esc(r.state)}">${esc(r.state)}</span> <span class="muted" style="font-size:11px">${when}</span></span></div>
-    ${r.notes ? `<div style="font-size:13px">${esc(r.notes)}</div>` : ''}
+      <span><span class="badge ${esc(r.state)}">${esc(r.state)}</span></span></div>
+    <div class="muted" style="font-size:11.5px">${when}</div>
+    ${r.notes ? `<div style="font-size:13px;margin-top:4px">${esc(r.notes)}</div>` : ''}
     ${extras ? `<dl>${extras}</dl>` : ''}
     <div class="acts">
       <button class="mini" data-id="${r.id}" data-s="done">done</button>
@@ -57,12 +55,13 @@ function renderRec(r) {
     </div></div>`;
 }
 
-out.addEventListener('click', async (e) => {
+document.body.addEventListener('click', async (e) => {
   const b = e.target.closest('button[data-id]'); if (!b) return;
-  await fetch('/api/records/state', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ id: b.dataset.id, state: b.dataset.s }) });
+  await api('/api/records/state', { id: b.dataset.id, state: b.dataset.s });
   load();
 });
 document.getElementById('arch').addEventListener('change', load);
+wireGroups();
 load();
 </script>
 </body>
