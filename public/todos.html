@@ -38,31 +38,58 @@ import { $, esc, api, toast, modal } from '/ui.js';
 
 const COLS = [{ s:'active', label:'To do' }, { s:'doing', label:'Doing' }, { s:'done', label:'Done' }];
 const byId = new Map();
+let projects = [];
 const today = new Date().toISOString().slice(0,10);
 
 async function load(){
-  const { records } = await api('/api/records/by?category=tasks');
+  const [{ records }, pr] = await Promise.all([ api('/api/records/by?category=tasks'), api('/api/records/by?category=projects') ]);
+  projects = pr.records;
   byId.clear(); records.forEach(r=>byId.set(r.id,r));
   $('#board').innerHTML = COLS.map(c=>{
     const items = records.filter(r=>r.state===c.s);
-    return `<div class="col">
-      <div class="col-head"><h3>${c.label}</h3><span class="count">${items.length}</span></div>
-      ${items.map(ticket).join('') || '<div class="muted" style="font-size:12.5px">—</div>'}
-    </div>`;
+    const head = `<div class="col-head"><h3>${c.label}</h3><span class="count">${items.length}</span>${
+      c.s==='done'&&items.length?`<button class="mini" id="arch-done" style="margin-left:auto">archive all</button>`:''}</div>`;
+    return `<div class="col" data-col="${c.s}">${head}<div class="drop">${items.map(ticket).join('') || '<div class="muted" style="font-size:12.5px">—</div>'}</div></div>`;
   }).join('');
+  wireDnd();
+  const ad = $('#arch-done'); if(ad) ad.onclick = async ()=>{
+    const done = records.filter(r=>r.state==='done');
+    for(const t of done) await api('/api/records/update',{id:t.id,state:'archived'});
+    toast(`archived ${done.length}`,'ok'); load();
+  };
 }
 
 function ticket(r){
   const e = r.extras||{};
   const prio = e.priority ? `<span class="prio ${esc(e.priority)}">${esc(e.priority)}</span>` : '';
   const due = e.due_at ? `<span class="due ${e.due_at.slice(0,10)<today&&r.state!=='done'?'over':''}">⏱ ${e.due_at.slice(0,10)}</span>` : '';
-  const moves = COLS.filter(c=>c.s!==r.state).map(c=>`<button class="mini" data-mv="${r.id}" data-s="${c.s}">${c.label}</button>`).join('');
-  return `<div class="ticket">
+  const rec = e.recurring ? `<span class="pill">↻ ${esc(e.recurring_freq||'recurring')}</span>` : '';
+  return `<div class="ticket" draggable="true" data-id="${r.id}">
     <div class="tt">${esc(r.headline)}</div>
     ${e.context?`<div class="muted" style="font-size:12px;margin-top:3px">${esc(e.context)}</div>`:''}
-    <div class="meta">${prio}${due}</div>
-    <div class="acts">${moves}<button class="mini" data-edit="${r.id}">edit</button></div>
+    <div class="meta">${prio}${due}${rec}</div>
+    <div class="acts"><button class="mini" data-edit="${r.id}">edit</button></div>
   </div>`;
+}
+
+// ---- drag & drop ----
+let dragId = null;
+function wireDnd(){
+  $('#board').querySelectorAll('.ticket').forEach(t=>{
+    t.addEventListener('dragstart', ()=>{ dragId=t.dataset.id; t.classList.add('dragging'); });
+    t.addEventListener('dragend', ()=>{ t.classList.remove('dragging'); });
+  });
+  $('#board').querySelectorAll('.col').forEach(col=>{
+    col.addEventListener('dragover', (e)=>{ e.preventDefault(); col.classList.add('dragover'); });
+    col.addEventListener('dragleave', ()=> col.classList.remove('dragover'));
+    col.addEventListener('drop', async (e)=>{
+      e.preventDefault(); col.classList.remove('dragover');
+      const id = dragId, state = col.dataset.col; if(!id) return;
+      const r = byId.get(id); if(r && r.state===state) return;
+      col.querySelector('.drop').prepend($(`.ticket[data-id="${id}"]`)); // optimistic move
+      await api('/api/records/update',{ id, state }); load();
+    });
+  });
 }
 
 $('#add').onclick = async ()=>{
@@ -74,22 +101,25 @@ $('#add').onclick = async ()=>{
 
 async function edit(id){
   const r = byId.get(id), e = r.extras||{};
+  const linkedProject = ''; // shown as a select to assign
   const v = await modal('Edit task', [
     { key:'title', label:'Title', value:r.headline },
     { key:'priority', label:'Priority', type:'select', options:['low','med','high'], value:e.priority||'med' },
     { key:'due_at', label:'Due', type:'date', value:(e.due_at||'').slice(0,10) },
     { key:'context', label:'Context', type:'textarea', value:e.context||'' },
     { key:'state', label:'State', type:'select', options:['active','doing','done','archived'], value:r.state },
+    { key:'project', label:'Add to project', type:'select', options:['', ...projects.map(p=>p.headline)], value:linkedProject },
   ], { extraButtons:[{ label:'Archive', kind:'ghost', value:'archived' }] });
   if(!v) return;
   if(v.__action==='archived'){ await api('/api/records/update',{id,state:'archived'}); toast('archived','ok'); load(); return; }
   await api('/api/records/update', { id, headline:v.title, state:v.state,
-    extras:{ title:v.title, priority:v.priority, due_at:v.due_at||null, context:v.context||null } });
-  toast('saved','ok'); load();
+    extras:{ ...e, title:v.title, priority:v.priority, due_at:v.due_at||null, context:v.context||null } });
+  if(v.project){ const p = projects.find(p=>p.headline===v.project); if(p){ await api('/api/projects/link',{projectId:p.id,kind:'task',refId:id}); toast('saved + linked to '+v.project,'ok'); } }
+  else toast('saved','ok');
+  load();
 }
 
 document.body.addEventListener('click', async (e)=>{
-  const mv=e.target.closest('button[data-mv]'); if(mv){ await api('/api/records/update',{id:mv.dataset.mv,state:mv.dataset.s}); load(); return; }
   const ed=e.target.closest('button[data-edit]'); if(ed) edit(ed.dataset.edit);
 });
 load();

@@ -181,7 +181,11 @@ tbody tr:hover { background: var(--soft); }
 .board .col-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .board .col-head h3 { margin: 0; font-size: 13px; font-weight: 600; text-transform: capitalize; }
 .board .col-head .count { color: var(--muted); font-size: 12px; }
-.board .ticket { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); box-shadow: var(--shadow); padding: 12px 13px; margin-bottom: 10px; }
+.board .ticket { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); box-shadow: var(--shadow); padding: 12px 13px; margin-bottom: 10px; cursor: grab; }
+.board .ticket:active { cursor: grabbing; }
+.board .ticket.dragging { opacity: .45; transform: scale(1.02); }
+.board .col.dragover { outline: 2px dashed var(--accent); outline-offset: -5px; background: var(--accent-weak); }
+.board .col .drop { min-height: 44px; }
 .board .ticket .tt { font-weight: 550; font-size: 14px; }
 .board .ticket .meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
 .board .ticket .acts { display: flex; gap: 5px; margin-top: 9px; }
@@ -222,10 +226,13 @@ tbody tr:hover { background: var(--soft); }
 }
 .modal {
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
-  box-shadow: 0 24px 70px rgba(0,0,0,.35); width: 100%; max-width: 460px; padding: 22px; animation: fadeUp .2s ease both;
+  box-shadow: 0 24px 70px rgba(0,0,0,.35); width: 100%; max-width: 560px; padding: 26px;
+  max-height: 90vh; overflow-y: auto; animation: fadeUp .2s ease both;
 }
-.modal h3 { margin: 0 0 16px; font-size: 16px; letter-spacing: -.01em; }
-.modal .field { display: grid; grid-template-columns: 116px 1fr; gap: 9px; align-items: center; margin-bottom: 10px; font-size: 13.5px; }
+.modal.wide { max-width: 720px; }
+.modal h3 { margin: 0 0 18px; font-size: 17px; letter-spacing: -.01em; }
+.modal .field { display: grid; grid-template-columns: 132px 1fr; gap: 11px; align-items: center; margin-bottom: 12px; font-size: 14px; }
+.modal .field textarea { min-height: 90px; }
 .modal .field label { color: var(--muted); }
 .modal .field input, .modal .field select, .modal .field textarea { width: 100%; }
 .modal .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }

@@ -61,7 +61,30 @@ function card(r){
       ${next?`<button class="mini" data-mv="${r.id}" data-s="${next}">→ ${next}</button>`:''}
       <button class="mini" data-edit="${r.id}">edit</button>
     </div>
+    <div class="acts" style="margin-top:4px">
+      <span class="muted" style="font-size:11px;align-self:center">discuss with</span>
+      <button class="mini" data-ai="claude" data-id="${r.id}">Claude</button>
+      <button class="mini" data-ai="chatgpt" data-id="${r.id}">ChatGPT</button>
+      <button class="mini" data-ai="gemini" data-id="${r.id}">Gemini</button>
+    </div>
   </div>`;
+}
+
+function aiPrompt(r){
+  const e = r.extras||{};
+  return `I'm working through this ${e.kind||'idea'} from my personal life OS:\n\n"${r.headline}"\n`+
+    (e.body?`\nDetail: ${e.body}\n`:'')+
+    `\nHelp me think it through: ask me 2-3 sharp clarifying questions first, then suggest concrete approaches, risks, and a next step.`;
+}
+
+async function discuss(provider, id){
+  const r = byId.get(id); const prompt = aiPrompt(r); const q = encodeURIComponent(prompt);
+  try { await navigator.clipboard.writeText(prompt); } catch { /* clipboard may be blocked */ }
+  const url = provider==='claude' ? `https://claude.ai/new?q=${q}`
+            : provider==='chatgpt' ? `https://chatgpt.com/?q=${q}`
+            : `https://gemini.google.com/app`; // gemini has no prompt param — prompt is on your clipboard
+  window.open(url, '_blank', 'noopener');
+  toast(provider==='gemini' ? 'prompt copied — paste into Gemini' : 'opening '+provider+' (prompt also copied)', 'ok');
 }
 
 $('#add').onclick = async ()=>{
@@ -92,6 +115,7 @@ async function edit(id){
 }
 
 document.body.addEventListener('click',(e)=>{
+  const ai=e.target.closest('button[data-ai]'); if(ai) return discuss(ai.dataset.ai, ai.dataset.id);
   const mv=e.target.closest('button[data-mv]'); if(mv) return setStatus(mv.dataset.mv, mv.dataset.s);
   const ed=e.target.closest('button[data-edit]'); if(ed) return edit(ed.dataset.edit);
 });

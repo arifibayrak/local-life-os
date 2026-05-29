@@ -94,7 +94,8 @@ async function openProject(id){
         <div id="d-todos"></div>
       </div>
       <div class="card">
-        <h2>Budget <button class="mini" id="add-exp" style="float:right">+ expense</button></h2>
+        <h2>Budget <span style="float:right"><button class="mini" id="set-cap">set cap</button> <button class="mini" id="add-exp">+ expense</button></span></h2>
+        <div id="d-cap"></div>
         <div id="d-budget"></div>
       </div>
     </div>
@@ -112,6 +113,11 @@ async function openProject(id){
     <div class="sub"><span><span class="badge ${esc(t.state)}">${esc(t.state)}</span> ${esc(t.headline)}</span><span></span>
       <button class="mini" data-unlink="task:${t.id}">×</button></div>`).join('') : '<small class="muted">no todos linked</small>';
 
+  // budget cap progress (cap is in GBP)
+  const cap = Number(e.budget_cap)||0; const spentGbp = d.budget['GBP']||0;
+  $('#d-cap').innerHTML = cap ? `
+    <div class="catrow" style="grid-template-columns:1fr 90px"><span class="catbar"><span style="width:${Math.min(100,Math.round(spentGbp/cap*100))}%;background:${spentGbp>cap?'var(--danger)':'var(--accent)'}"></span></span>
+      <span class="num" style="font-size:12.5px">${money(spentGbp,'GBP')} / ${money(cap,'GBP')}</span></div>` : '';
   $('#d-budget').innerHTML = (Object.keys(d.budget).length?`<div style="margin-bottom:8px">${Object.entries(d.budget).map(([c,v])=>`<span class="pill">${money(v,c)}</span>`).join(' ')}</div>`:'') +
     (d.payments.length ? d.payments.map(p=>`
     <div class="sub"><span>${esc(p.vendor||p.category)} <span class="pill">${esc(p.category)}</span></span>
@@ -129,10 +135,19 @@ async function openProject(id){
       { key:'title', label:'Title' },
       { key:'priority', label:'Priority', type:'select', options:['low','med','high'], value:'med' },
       { key:'due_at', label:'Due', type:'date' },
+      { key:'recurring', label:'Recurring', type:'select', options:['no','daily','weekly','monthly'], value:'no' },
     ], { saveLabel:'Add' });
     if(!v||!v.title) return;
-    const { id: tid } = await api('/api/records/add',{ category:'tasks', headline:v.title, state:'active', extras:{ title:v.title, priority:v.priority, due_at:v.due_at||null, context:null } });
+    const rec = v.recurring && v.recurring!=='no';
+    const { id: tid } = await api('/api/records/add',{ category:'tasks', headline:v.title, state:'active',
+      extras:{ title:v.title, priority:v.priority, due_at:v.due_at||null, context:null, recurring:rec, recurring_freq:rec?v.recurring:'' } });
     await api('/api/projects/link',{ projectId:id, kind:'task', refId:tid }); toast('todo added','ok'); openProject(id);
+  };
+  $('#set-cap').onclick = async ()=>{
+    const v = await modal('Set budget cap (GBP)', [{ key:'cap', label:'Cap (GBP)', type:'number', value:e.budget_cap||'' }], { saveLabel:'Save' });
+    if(!v) return;
+    await api('/api/records/update',{ id, extras:{ ...e, budget_cap: v.cap? +v.cap : null } });
+    toast('cap set','ok'); openProject(id);
   };
   $('#add-exp').onclick = async ()=>{
     const v = await modal('New expense for this project', [

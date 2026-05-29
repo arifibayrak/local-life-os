@@ -24,7 +24,7 @@
   <div class="card">
     <div class="formrow">
       <input id="e-title" placeholder="event…" style="flex:1;min-width:180px">
-      <input id="e-kind" placeholder="kind (trip, dinner…)" style="width:150px">
+      <select id="e-type"></select>
       <input id="e-date" type="date">
       <input id="e-loc" placeholder="location" style="width:140px">
       <button class="primary" id="add">Add</button>
@@ -37,11 +37,16 @@
 <script type="module">
 import { $, esc, api, toast, modal, wireGroups, groupBlock } from '/ui.js';
 
+const TYPES = ['trip','dinner','conference','talk','sport','celebration','meeting','social','milestone','other'];
 const byId = new Map();
+let contacts = [];
 const today = new Date().toISOString().slice(0,10);
 
+$('#e-type').innerHTML = TYPES.map(t=>`<option>${t}</option>`).join('');
+
 async function load(){
-  const { records } = await api('/api/records/by?category=events');
+  const [{ records }, cg] = await Promise.all([ api('/api/records/by?category=events'), api('/api/contacts') ]);
+  contacts = cg.groups.flatMap(g=>g.contacts);
   byId.clear(); records.forEach(r=>byId.set(r.id,r));
   if(!records.length){ $('#out').innerHTML='<p class="empty">No events yet. Add one above.</p>'; return; }
   const start = r => (r.extras?.start_at||'').slice(0,10);
@@ -60,37 +65,66 @@ function card(r){
   return `<div class="rec">
     <div class="top"><strong>${esc(r.headline)}</strong>${e.kind?`<span class="pill">${esc(e.kind)}</span>`:''}</div>
     <div class="muted" style="font-size:12.5px">📅 ${when}${e.location?' · 📍 '+esc(e.location):''}</div>
-    ${people?`<div style="margin-top:6px">${people}</div>`:''}
-    <div class="acts"><button class="mini" data-edit="${r.id}">edit</button></div>
+    ${r.notes?`<div style="font-size:13px;margin-top:5px">${esc(r.notes)}</div>`:''}
+    ${people?`<div class="tags" style="margin-top:6px">${people}</div>`:''}
+    <div class="acts">
+      <button class="mini" data-person="${r.id}">+ person</button>
+      <button class="mini" data-edit="${r.id}">edit</button>
+    </div>
   </div>`;
 }
 
 $('#add').onclick = async ()=>{
   const title=$('#e-title').value.trim(); if(!title){ toast('title required','err'); return; }
-  await api('/api/records/add', { category:'events', headline:title, state:'active',
-    extras:{ title, kind:$('#e-kind').value||null, start_at:$('#e-date').value||null, end_at:null, location:$('#e-loc').value||null, attended_with:[] } });
-  $('#e-title').value=''; $('#e-kind').value=''; $('#e-date').value=''; $('#e-loc').value=''; toast('added','ok'); load();
+  await api('/api/records/add', { category:'events', headline:title, state:'active', notes:null,
+    extras:{ title, kind:$('#e-type').value, start_at:$('#e-date').value||null, end_at:null, location:$('#e-loc').value||null, attended_with:[] } });
+  $('#e-title').value=''; $('#e-date').value=''; $('#e-loc').value=''; toast('added','ok'); load();
 };
 
 async function edit(id){
   const r=byId.get(id), e=r.extras||{};
   const v = await modal('Edit event', [
     { key:'title', label:'Title', value:r.headline },
-    { key:'kind', label:'Kind', value:e.kind||'' },
+    { key:'kind', label:'Type', type:'select', options:TYPES, value:e.kind||'other' },
     { key:'start_at', label:'Start', type:'date', value:(e.start_at||'').slice(0,10) },
     { key:'end_at', label:'End', type:'date', value:(e.end_at||'').slice(0,10) },
     { key:'location', label:'Location', value:e.location||'' },
-    { key:'attended_with', label:'With (csv)', value:(e.attended_with||[]).join(', ') },
+    { key:'notes', label:'Detail / context', type:'textarea', value:r.notes||'' },
   ], { extraButtons:[{ label:'Archive', kind:'ghost', value:'archived' }] });
   if(!v) return;
   if(v.__action==='archived'){ await api('/api/records/update',{id,state:'archived'}); toast('archived','ok'); load(); return; }
-  await api('/api/records/update', { id, headline:v.title,
-    extras:{ title:v.title, kind:v.kind||null, start_at:v.start_at||null, end_at:v.end_at||null, location:v.location||null,
-      attended_with:v.attended_with.split(',').map(s=>s.trim()).filter(Boolean) } });
+  await api('/api/records/update', { id, headline:v.title, notes:v.notes||null,
+    extras:{ ...e, title:v.title, kind:v.kind, start_at:v.start_at||null, end_at:v.end_at||null, location:v.location||null } });
   toast('saved','ok'); load();
 }
 
-document.body.addEventListener('click',(e)=>{ const b=e.target.closest('button[data-edit]'); if(b) edit(b.dataset.edit); });
+// Add a person from the network, or create a new contact in both network + this event.
+async function addPerson(id){
+  const r=byId.get(id), e=r.extras||{};
+  const here = new Set(e.attended_with||[]);
+  const opts = ['', ...contacts.filter(c=>!here.has(c.name)).map(c=>c.name)];
+  const v = await modal('Add person to "'+esc(r.headline)+'"', [
+    { key:'existing', label:'From network', type:'select', options:opts, value:'' },
+    { key:'newname', label:'…or new person', value:'' },
+  ], { saveLabel:'Add' });
+  if(!v) return;
+  let name = v.newname.trim() || v.existing;
+  if(!name){ return; }
+  if(v.newname.trim()){
+    // create in network too
+    await api('/api/contacts', { name:v.newname.trim(), circle:'friends', met_where:r.headline });
+    toast('added to network + event','ok');
+  } else toast('added','ok');
+  const attended_with = [...(e.attended_with||[]), name];
+  await api('/api/records/update', { id, extras:{ ...e, attended_with } });
+  contacts = (await api('/api/contacts')).groups.flatMap(g=>g.contacts);
+  load();
+}
+
+document.body.addEventListener('click',(e)=>{
+  const p=e.target.closest('button[data-person]'); if(p) return addPerson(p.dataset.person);
+  const b=e.target.closest('button[data-edit]'); if(b) return edit(b.dataset.edit);
+});
 wireGroups(); load();
 </script>
 </body>
