@@ -18,6 +18,13 @@ Local web UI ──► whisper.cpp (voice→text) ──► Journal
 Stack: TypeScript daemon · `better-sqlite3` · `simple-git` · Node built-in HTTP UI ·
 **Qwen3.5-9B (4-bit) through MLX** · **whisper.cpp** for voice.
 
+## Documentation
+
+Full docs live in [`docs/`](./docs): [architecture](./docs/ARCHITECTURE.md),
+[data model](./docs/DATA-MODEL.md), [extraction/recognition](./docs/EXTRACTION.md),
+[security & privacy](./docs/SECURITY.md), [UI/UX system](./docs/UI-UX.md),
+[roadmap](./docs/ROADMAP.md).
+
 ## Prerequisites (one-time, all local)
 
 1. **Node** 20+ (22/24 fine).

@@ -18,7 +18,7 @@ async function main(): Promise<void> {
   }
 
   const manager = new SessionManager(db);
-  startServer(manager);
+  startServer(manager, db);
   log.info('ready. open the web UI and start capturing.');
 }
 

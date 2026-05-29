@@ -50,6 +50,33 @@ const MIGRATIONS: string[] = [
 
   CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY);
   `,
+  // v2: finance — payments + subscriptions (ported from brain's finance model).
+  // Subscriptions are payments with type='recurring' (recurring_freq + bill_day).
+  // project_id optionally links a payment to a project/event hub (added later).
+  `
+  CREATE TABLE IF NOT EXISTS payments (
+    id             TEXT PRIMARY KEY,
+    amount         REAL NOT NULL,
+    currency       TEXT NOT NULL DEFAULT 'GBP',
+    date           TEXT NOT NULL,                 -- YYYY-MM-DD
+    direction      TEXT NOT NULL DEFAULT 'out'    -- 'out' (spend) | 'in' (income)
+                     CHECK(direction IN ('out','in')),
+    type           TEXT NOT NULL DEFAULT 'one-time'
+                     CHECK(type IN ('one-time','recurring')),
+    category       TEXT NOT NULL DEFAULT 'other',
+    description    TEXT NOT NULL DEFAULT '',
+    vendor         TEXT NOT NULL DEFAULT '',
+    recurring_freq TEXT NOT NULL DEFAULT ''        -- '' | 'monthly' | 'yearly'
+                     CHECK(recurring_freq IN ('','monthly','yearly')),
+    bill_day       INTEGER,                        -- day of month a subscription renews
+    project_id     TEXT NOT NULL DEFAULT '',
+    notes          TEXT NOT NULL DEFAULT '',
+    created_at     TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_payments_date     ON payments(date DESC);
+  CREATE INDEX IF NOT EXISTS idx_payments_category ON payments(category);
+  CREATE INDEX IF NOT EXISTS idx_payments_type     ON payments(type);
+  `,
 ];
 
 export function openDb(): DB {

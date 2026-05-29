@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>local-life-os — Finance</title>
+<link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <span class="brand">local<span class="accent">·</span>life<span class="accent">·</span>os</span>
+    <nav class="nav">
+      <a href="/">Capture</a>
+      <a href="/dashboard">Vault</a>
+      <a href="/finance" class="active">Finance</a>
+    </nav>
+  </div>
+
+  <div class="cards" id="stats"></div>
+
+  <div class="grid-2">
+    <div class="card">
+      <h2>Spending by category
+        <span class="toggle" id="period" style="float:right">
+          <button data-p="day">Daily</button><button data-p="week">Weekly</button><button data-p="month" class="on">Monthly</button>
+        </span>
+      </h2>
+      <div class="bars" id="trend"></div>
+      <div id="cats" style="margin-top:12px"></div>
+      <small class="muted" id="ccyline"></small>
+    </div>
+
+    <div class="card">
+      <h2>Subscriptions</h2>
+      <div id="subtotals" style="margin-bottom:8px"></div>
+      <div id="subs"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Add transaction</h2>
+    <div class="formrow">
+      <input id="f-amount" type="number" step="0.01" placeholder="amount" style="width:110px">
+      <select id="f-ccy"><option>GBP</option><option>TRY</option><option>USD</option><option>EUR</option></select>
+      <input id="f-date" type="date">
+      <select id="f-dir"><option value="out">spend</option><option value="in">income</option></select>
+      <select id="f-cat"></select>
+      <input id="f-vendor" placeholder="vendor" style="width:130px">
+      <input id="f-desc" placeholder="description" style="width:160px">
+      <label style="font-size:13px"><input type="checkbox" id="f-rec"> recurring</label>
+      <select id="f-freq" style="display:none"><option value="monthly">monthly</option><option value="yearly">yearly</option></select>
+      <button class="primary" id="add">Add</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Bulk import (CSV / Excel)</h2>
+    <input type="file" id="file" accept=".csv,.tsv,.txt,.xlsx,.xls">
+    <span id="impinfo" class="muted"></span>
+    <div id="preview"></div>
+  </div>
+
+  <div class="card">
+    <h2>Recent transactions</h2>
+    <table><thead><tr><th>Date</th><th>Description</th><th>Category</th><th class="num">Amount</th><th></th></tr></thead>
+    <tbody id="txns"></tbody></table>
+  </div>
+</div>
+
+<script type="module">
+const $ = (s) => document.querySelector(s);
+const api = async (p, body) => (await fetch(p, body ? {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)} : {})).json();
+const esc = (s) => String(s ?? '').replace(/</g,'&lt;');
+const money = (n, c) => (c==='GBP'?'£':c==='TRY'?'₺':c==='EUR'?'€':c==='USD'?'$':c+' ') + Number(n||0).toLocaleString(undefined,{maximumFractionDigits:2});
+let CATS = [];
+let period = 'month';
+const ccy = 'GBP';
+
+async function loadCategories(){
+  await fetch('/api/finance/analytics?period=month');
+  CATS = ["groceries","restaurants","transport","travel","education","housing","utilities","telecom","bills","clothing","household","tech","subscription","streaming","ai_tools","credit_cards","entertainment","health","gifts","investment","fees","income","other"];
+  $('#f-cat').innerHTML = CATS.map(c=>`<option>${c}</option>`).join('');
+}
+
+async function loadAll(){ await Promise.all([loadAnalytics(), loadSubs(), loadTxns(), loadStats()]); }
+
+async function loadStats(){
+  const month = new Date().toISOString().slice(0,7);
+  const { payments } = await api('/api/finance?month='+month);
+  let out=0,inc=0;
+  for(const p of payments){ if(p.currency!==ccy) continue; if(p.direction==='out') out+=p.amount; else inc+=p.amount; }
+  $('#stats').innerHTML = `
+    <div class="stat"><div class="k">This month out</div><div class="v out">${money(out,ccy)}</div></div>
+    <div class="stat"><div class="k">This month in</div><div class="v in">${money(inc,ccy)}</div></div>
+    <div class="stat"><div class="k">Net</div><div class="v">${money(inc-out,ccy)}</div></div>`;
+}
+
+async function loadAnalytics(){
+  const a = await api(`/api/finance/analytics?period=${period}&currency=${ccy}`);
+  const max = Math.max(1, ...a.series.map(s=>s.out));
+  $('#trend').innerHTML = a.series.map(s=>`<div class="b" style="height:${Math.round(s.out/max*100)}%" title="${s.bucket}: ${money(s.out,ccy)}"></div>`).join('') || '<small class="muted">no data</small>';
+  $('#cats').innerHTML = a.current.byCategory.map(c=>`
+    <div class="catrow"><span>${esc(c.category)}</span>
+      <span class="catbar"><span style="width:${c.pct}%"></span></span>
+      <span class="num">${money(c.amount,ccy)}</span></div>`).join('') || '<small class="muted">nothing in latest bucket</small>';
+  $('#ccyline').textContent = `latest ${period}: ${a.current.bucket||'—'} · total ${money(a.current.total,ccy)} (${ccy})`;
+}
+
+async function loadSubs(){
+  const { items, totals } = await api('/api/finance/subscriptions');
+  $('#subtotals').innerHTML = Object.entries(totals).map(([c,t])=>`<span class="pill">${c}: ${money(t.monthly,c)}/mo · ${money(t.yearly,c)}/yr</span>`).join(' ') || '<small class="muted">no subscriptions</small>';
+  $('#subs').innerHTML = items.map(s=>`
+    <div class="sub">
+      <span><strong>${esc(s.vendor||s.description||s.category)}</strong> <span class="pill">${esc(s.category)}</span></span>
+      <span class="num">${money(s.amount,s.currency)}/${s.recurring_freq==='yearly'?'yr':'mo'}</span>
+      <span class="num"><small class="muted">renews ${s.nextRenewal}</small></span>
+    </div>`).join('');
+}
+
+async function loadTxns(){
+  const { payments } = await api('/api/finance');
+  $('#txns').innerHTML = payments.slice(0,40).map(p=>`
+    <tr><td>${p.date}</td><td>${esc(p.vendor||p.description)}</td><td><span class="pill">${esc(p.category)}</span></td>
+    <td class="num" style="color:${p.direction==='out'?'var(--danger)':'var(--success)'}">${p.direction==='out'?'-':'+'}${money(p.amount,p.currency)}</td>
+    <td><button class="mini" data-del="${p.id}">×</button></td></tr>`).join('');
+}
+
+$('#period').addEventListener('click', (e)=>{ const b=e.target.closest('button'); if(!b)return;
+  [...$('#period').children].forEach(x=>x.classList.remove('on')); b.classList.add('on'); period=b.dataset.p; loadAnalytics(); });
+
+$('#f-rec').addEventListener('change', e=> $('#f-freq').style.display = e.target.checked ? '' : 'none');
+$('#add').onclick = async ()=>{
+  const body = { amount:+$('#f-amount').value, currency:$('#f-ccy').value, date:$('#f-date').value||new Date().toISOString().slice(0,10),
+    direction:$('#f-dir').value, category:$('#f-cat').value, vendor:$('#f-vendor').value, description:$('#f-desc').value,
+    type:$('#f-rec').checked?'recurring':'one-time', recurring_freq:$('#f-rec').checked?$('#f-freq').value:'' };
+  if(!body.amount){ alert('amount required'); return; }
+  await api('/api/finance', body);
+  $('#f-amount').value=''; $('#f-vendor').value=''; $('#f-desc').value='';
+  loadAll();
+};
+
+document.body.addEventListener('click', async (e)=>{ const b=e.target.closest('button[data-del]'); if(!b)return;
+  await api('/api/finance/delete',{id:b.dataset.del}); loadAll(); });
+
+$('#file').addEventListener('change', async (e)=>{
+  const file = e.target.files[0]; if(!file) return;
+  const b64 = btoa(String.fromCharCode(...new Uint8Array(await file.arrayBuffer())));
+  $('#impinfo').textContent = ' parsing…';
+  const res = await api('/api/finance/import', { filename:file.name, base64:b64 });
+  $('#impinfo').textContent = ` detected ${res.count} rows`;
+  renderPreview(res.rows);
+});
+function renderPreview(rows){
+  if(!rows.length){ $('#preview').innerHTML='<small class="muted">no rows parsed — check the file has date + amount columns</small>'; return; }
+  window._imp = rows;
+  $('#preview').innerHTML = `<table><thead><tr><th>Date</th><th>Description</th><th>Category</th><th class="num">Amount</th></tr></thead><tbody>${
+    rows.slice(0,200).map((r,i)=>`<tr><td>${r.date}</td><td>${esc(r.vendor||r.description)}</td>
+      <td><select data-i="${i}">${CATS.map(c=>`<option ${c===r.category?'selected':''}>${c}</option>`).join('')}</select></td>
+      <td class="num" style="color:${r.direction==='out'?'var(--danger)':'var(--success)'}">${r.direction==='out'?'-':'+'}${money(r.amount,r.currency)}</td></tr>`).join('')
+  }</tbody></table>
+  <div style="margin-top:8px"><button class="primary" id="commit">Import ${rows.length} transactions</button></div>`;
+  $('#preview').querySelectorAll('select[data-i]').forEach(sel=> sel.onchange=()=> window._imp[+sel.dataset.i].category = sel.value);
+  $('#commit').onclick = async ()=>{ const res = await api('/api/finance/import/commit', { rows: window._imp });
+    $('#preview').innerHTML = `<small class="muted">imported ${res.inserted} transactions ✓</small>`; loadAll(); };
+}
+
+$('#f-date').value = new Date().toISOString().slice(0,10);
+loadCategories().then(loadAll);
+</script>
+</body>
+</html>

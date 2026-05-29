@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>local-life-os — Vault</title>
+<link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <span class="brand">local<span class="accent">·</span>life<span class="accent">·</span>os</span>
+    <nav class="nav">
+      <a href="/">Capture</a>
+      <a href="/dashboard" class="active">Vault</a>
+      <a href="/finance">Finance</a>
+    </nav>
+  </div>
+
+  <div class="formrow" style="margin-bottom:14px">
+    <span class="statusline">Your Vault</span>
+    <label class="statusline" style="margin-left:auto"><input type="checkbox" id="arch"> show archived</label>
+  </div>
+  <div id="out"></div>
+</div>
+
+<script type="module">
+const out = document.getElementById('out');
+const esc = (s) => String(s ?? '').replace(/</g,'&lt;');
+
+async function load() {
+  const archived = document.getElementById('arch').checked ? '?archived=1' : '';
+  const { groups } = await (await fetch('/api/records' + archived)).json();
+  if (!groups.length) { out.innerHTML = '<p class="empty">Nothing in the Vault yet. Capture something and approve it.</p>'; return; }
+  out.innerHTML = groups.map((g) => `
+    <h2 class="section-title">${esc(g.category)} · ${g.count}</h2>
+    ${g.records.map(renderRec).join('')}
+  `).join('');
+}
+
+function renderRec(r) {
+  const extras = Object.entries(r.extras || {})
+    .filter(([,v]) => v !== null && v !== '' && !(Array.isArray(v) && v.length === 0))
+    .map(([k,v]) => `<dt>${esc(k)}</dt><dd>${esc(Array.isArray(v) ? v.join(', ') : (typeof v === 'object' ? JSON.stringify(v) : v))}</dd>`)
+    .join('');
+  const when = (r.created_at || '').slice(0,10);
+  return `<div class="rec">
+    <div class="top"><strong>${esc(r.headline)}</strong>
+      <span><span class="badge ${esc(r.state)}">${esc(r.state)}</span> <span class="muted" style="font-size:11px">${when}</span></span></div>
+    ${r.notes ? `<div style="font-size:13px">${esc(r.notes)}</div>` : ''}
+    ${extras ? `<dl>${extras}</dl>` : ''}
+    <div class="acts">
+      <button class="mini" data-id="${r.id}" data-s="done">done</button>
+      <button class="mini" data-id="${r.id}" data-s="doing">doing</button>
+      <button class="mini" data-id="${r.id}" data-s="archived">archive</button>
+    </div></div>`;
+}
+
+out.addEventListener('click', async (e) => {
+  const b = e.target.closest('button[data-id]'); if (!b) return;
+  await fetch('/api/records/state', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ id: b.dataset.id, state: b.dataset.s }) });
+  load();
+});
+document.getElementById('arch').addEventListener('change', load);
+load();
+</script>
+</body>
+</html>

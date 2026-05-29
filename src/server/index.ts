@@ -8,6 +8,10 @@ import { log } from '../logger.js';
 import { vaultPaths } from '../vault/paths.js';
 import { llmHealthy } from '../llm/client.js';
 import { transcribe, TranscriptionUnavailable } from '../scribe/whisper.js';
+import { listRecords, setRecordState } from '../vault/records.js';
+import { addPayment, addPaymentsBulk, listPayments, deletePayment, analytics, listSubscriptions } from '../finance/store.js';
+import { parseStatement, sanitizeCategory } from '../finance/import.js';
+import type { DB } from '../vault/db.js';
 import type { SessionManager } from '../session/manager.js';
 
 const PUBLIC = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'public');
@@ -24,13 +28,69 @@ async function readJson<T>(req: IncomingMessage): Promise<T> {
   return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}') as T;
 }
 
-export function startServer(manager: SessionManager): void {
+export function startServer(manager: SessionManager, db: DB): void {
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://${config.host}:${config.port}`);
     const { pathname } = url;
     try {
+      if (req.method === 'GET' && pathname === '/app.css') {
+        return send(res, 200, readFileSync(join(PUBLIC, 'app.css'), 'utf8'), 'text/css');
+      }
       if (req.method === 'GET' && pathname === '/') {
         return send(res, 200, readFileSync(join(PUBLIC, 'index.html'), 'utf8'), 'text/html');
+      }
+      if (req.method === 'GET' && pathname === '/dashboard') {
+        return send(res, 200, readFileSync(join(PUBLIC, 'dashboard.html'), 'utf8'), 'text/html');
+      }
+      if (req.method === 'GET' && pathname === '/api/records') {
+        const includeArchived = url.searchParams.get('archived') === '1';
+        return send(res, 200, { groups: listRecords(db, { includeArchived }) });
+      }
+      if (req.method === 'POST' && pathname === '/api/records/state') {
+        const { id, state } = await readJson<{ id?: string; state?: string }>(req);
+        const allowed = ['active', 'doing', 'done', 'archived', 'snoozed', 'dismissed'];
+        if (!id || !state || !allowed.includes(state)) return send(res, 400, { error: 'bad id/state' });
+        return send(res, 200, { ok: setRecordState(db, id, state) });
+      }
+
+      // ---- Finance + Subscriptions ----
+      if (req.method === 'GET' && pathname === '/finance') {
+        return send(res, 200, readFileSync(join(PUBLIC, 'finance.html'), 'utf8'), 'text/html');
+      }
+      if (req.method === 'GET' && pathname === '/api/finance') {
+        const month = url.searchParams.get('month') ?? undefined;
+        const category = url.searchParams.get('category') ?? undefined;
+        return send(res, 200, { payments: listPayments(db, { month, category }) });
+      }
+      if (req.method === 'POST' && pathname === '/api/finance') {
+        const body = await readJson<{ amount?: number; date?: string }>(req);
+        if (!body.amount || !body.date) return send(res, 400, { error: 'amount and date required' });
+        return send(res, 200, { payment: addPayment(db, body as { amount: number; date: string }) });
+      }
+      if (req.method === 'POST' && pathname === '/api/finance/delete') {
+        const { id } = await readJson<{ id?: string }>(req);
+        if (!id) return send(res, 400, { error: 'id required' });
+        return send(res, 200, { ok: deletePayment(db, id) });
+      }
+      if (req.method === 'GET' && pathname === '/api/finance/analytics') {
+        const period = (url.searchParams.get('period') ?? 'month') as 'day' | 'week' | 'month';
+        const currency = url.searchParams.get('currency') ?? 'GBP';
+        return send(res, 200, analytics(db, period, currency));
+      }
+      if (req.method === 'GET' && pathname === '/api/finance/subscriptions') {
+        return send(res, 200, listSubscriptions(db));
+      }
+      if (req.method === 'POST' && pathname === '/api/finance/import') {
+        const { filename, base64 } = await readJson<{ filename?: string; base64?: string }>(req);
+        if (!base64) return send(res, 400, { error: 'no file' });
+        const { rows, detected } = parseStatement(Buffer.from(base64, 'base64'), filename ?? 'upload.csv');
+        return send(res, 200, { rows, detected, count: rows.length });
+      }
+      if (req.method === 'POST' && pathname === '/api/finance/import/commit') {
+        const { rows } = await readJson<{ rows?: Array<{ amount: number; date: string; category?: string }> }>(req);
+        if (!rows?.length) return send(res, 400, { error: 'no rows' });
+        const clean = rows.map((r) => ({ ...r, category: sanitizeCategory(r.category) }));
+        return send(res, 200, { inserted: addPaymentsBulk(db, clean) });
       }
       if (req.method === 'GET' && pathname === '/api/health') {
         return send(res, 200, { llm: await llmHealthy() });
