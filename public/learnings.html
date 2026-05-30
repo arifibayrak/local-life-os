@@ -63,6 +63,7 @@ function card(r){
       <button class="mini" data-explain="${r.id}">✨ explain</button>
       <button class="mini" data-wiki="${r.id}">🔍 context</button>
       <button class="mini" data-discuss="${r.id}">✦ discuss</button>
+      <button class="mini" data-del="${r.id}">🗑</button>
     </div>
     <div class="lout" data-out="${r.id}"></div>
   </div>`;
@@ -117,6 +118,7 @@ document.body.addEventListener('click',(e)=>{
   const ds=e.target.closest('button[data-discuss]'); if(ds){ const r=byId.get(ds.dataset.discuss),x=r.extras||{};
     messages=messages.slice(0,1); renderChat(); openDrawer();
     send(`Let's discuss "${r.headline}".`+(x.summary?` My note: ${x.summary}`:'')); return; }
+  const dl=e.target.closest('button[data-del]'); if(dl){ if(!confirm('Delete this learning?')) return; api('/api/records/delete',{id:dl.dataset.del}).then(()=>{ toast('deleted','ok'); load(); }); return; }
 });
 load();
 </script>

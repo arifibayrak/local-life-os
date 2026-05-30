@@ -82,8 +82,9 @@ async function edit(id){
     { key:'end_at', label:'End', type:'date', value:(e.end_at||'').slice(0,10) },
     { key:'location', label:'Location', value:e.location||'' },
     { key:'notes', label:'Detail / context', type:'textarea', value:r.notes||'' },
-  ], { extraButtons:[{ label:'Archive', kind:'ghost', value:'archived' }] });
+  ], { extraButtons:[{ label:'Delete', kind:'ghost', value:'delete' }, { label:'Archive', kind:'ghost', value:'archived' }] });
   if(!v) return;
+  if(v.__action==='delete'){ if(!confirm('Delete this event permanently?')) return; await api('/api/records/delete',{id}); toast('deleted','ok'); load(); return; }
   if(v.__action==='archived'){ await api('/api/records/update',{id,state:'archived'}); toast('archived','ok'); load(); return; }
   await api('/api/records/update', { id, headline:v.title, notes:v.notes||null,
     extras:{ ...e, title:v.title, kind:v.kind, start_at:v.start_at||null, end_at:v.end_at||null, location:v.location||null } });

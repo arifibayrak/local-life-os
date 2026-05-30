@@ -75,7 +75,7 @@ async function openProject(id){
     <div class="card">
       <div class="top" style="display:flex;justify-content:space-between;align-items:baseline">
         <h2 style="margin:0;font-size:18px;text-transform:none;letter-spacing:-.01em;color:var(--text)">${esc(d.project?.headline||'')}</h2>
-        <span class="pill">${esc(e.status||'active')}</span>
+        <span><span class="pill">${esc(e.status||'active')}</span> <button class="mini" id="del-proj">🗑 delete</button></span>
       </div>
       ${e.summary?`<div class="muted" style="margin-top:4px">${esc(e.summary)}</div>`:''}
     </div>
@@ -121,6 +121,7 @@ async function openProject(id){
       <button class="mini" data-unlink="contact:${c.id}">×</button></div>`).join('') : '<small class="muted">no people linked</small>';
 
   $('#back').onclick = (ev)=>{ ev.preventDefault(); loadList(); };
+  $('#del-proj').onclick = async ()=>{ if(!confirm('Delete this project? (its linked todos/expenses/people stay; only the links are removed)')) return; await api('/api/records/delete',{id}); toast('project deleted','ok'); loadList(); };
 
   $('#add-todo').onclick = async ()=>{
     const v = await modal('New todo for this project', [

@@ -62,6 +62,7 @@ function card(r){
       ${e.url?`<a class="mini" href="${esc(e.url)}" target="_blank" rel="noopener" style="text-decoration:none">open ↗</a>`:''}
       ${done?'':`<button class="mini" data-done="${r.id}">mark read</button>`}
       <button class="mini" data-arch="${r.id}">archive</button>
+      <button class="mini" data-del="${r.id}">🗑</button>
     </div>
   </div>`;
 }
@@ -85,6 +86,7 @@ $('#add').onclick = async ()=>{
 document.body.addEventListener('click', async (e)=>{
   const d=e.target.closest('button[data-done]'); if(d){ await api('/api/records/update',{id:d.dataset.done,state:'done'}); toast('marked read','ok'); load(); return; }
   const a=e.target.closest('button[data-arch]'); if(a){ await api('/api/records/update',{id:a.dataset.arch,state:'archived'}); toast('archived','ok'); load(); return; }
+  const dl=e.target.closest('button[data-del]'); if(dl){ if(!confirm('Delete this item permanently?')) return; await api('/api/records/delete',{id:dl.dataset.del}); toast('deleted','ok'); load(); return; }
 });
 wireGroups(); load();
 </script>

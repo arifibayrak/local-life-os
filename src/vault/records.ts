@@ -85,6 +85,12 @@ export function listByCategory(db: DB, category: string, opts?: { includeArchive
   });
 }
 
+/** Permanently delete a record (and any project links pointing at it). */
+export function deleteRecord(db: DB, id: string): boolean {
+  db.prepare(`DELETE FROM project_links WHERE ref_id = ? OR project_id = ?`).run(id, id);
+  return db.prepare(`DELETE FROM records WHERE id = ?`).run(id).changes > 0;
+}
+
 /** Patch a record's headline/notes/extras/state. */
 export function updateRecord(db: DB, id: string, patch: { headline?: string; notes?: string | null; extras?: Record<string, unknown>; state?: string }): boolean {
   const sets: string[] = [];

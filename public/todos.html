@@ -101,8 +101,9 @@ async function edit(id){
     { key:'context', label:'Context', type:'textarea', value:e.context||'' },
     { key:'state', label:'State', type:'select', options:['active','doing','done','archived'], value:r.state },
     { key:'project', label:'Add to project', type:'select', options:['', ...projects.map(p=>p.headline)], value:linkedProject },
-  ], { extraButtons:[{ label:'Archive', kind:'ghost', value:'archived' }] });
+  ], { extraButtons:[{ label:'Delete', kind:'ghost', value:'delete' }, { label:'Archive', kind:'ghost', value:'archived' }] });
   if(!v) return;
+  if(v.__action==='delete'){ if(!confirm('Delete this task permanently?')) return; await api('/api/records/delete',{id}); toast('deleted','ok'); load(); return; }
   if(v.__action==='archived'){ await api('/api/records/update',{id,state:'archived'}); toast('archived','ok'); load(); return; }
   await api('/api/records/update', { id, headline:v.title, state:v.state,
     extras:{ ...e, title:v.title, priority:v.priority, due_at:v.due_at||null, context:v.context||null } });

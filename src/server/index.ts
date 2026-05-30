@@ -8,7 +8,7 @@ import { log } from '../logger.js';
 import { vaultPaths } from '../vault/paths.js';
 import { llmHealthy, chat, LlmUnavailableError, type ChatMessage } from '../llm/client.js';
 import { transcribe, TranscriptionUnavailable } from '../scribe/whisper.js';
-import { listRecords, setRecordState, addRecord, listByCategory, updateRecord } from '../vault/records.js';
+import { listRecords, setRecordState, addRecord, listByCategory, updateRecord, deleteRecord } from '../vault/records.js';
 import { addPayment, addPaymentsBulk, listPayments, deletePayment, updatePayment, analytics, listSubscriptions } from '../finance/store.js';
 import { parseStatement, sanitizeCategory } from '../finance/import.js';
 import { listContacts, addContact, updateContact, deleteContact, logInteraction, getInteractions } from '../network/store.js';
@@ -170,6 +170,11 @@ export function startServer(manager: SessionManager, db: DB): void {
         const { id, ...patch } = await readJson<{ id?: string }>(req);
         if (!id) return send(res, 400, { error: 'id required' });
         return send(res, 200, { ok: updateRecord(db, id, patch) });
+      }
+      if (req.method === 'POST' && pathname === '/api/records/delete') {
+        const { id } = await readJson<{ id?: string }>(req);
+        if (!id) return send(res, 400, { error: 'id required' });
+        return send(res, 200, { ok: deleteRecord(db, id) });
       }
 
       // ---- Finance + Subscriptions ----

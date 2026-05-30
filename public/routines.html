@@ -76,8 +76,9 @@ async function edit(id){
     { key:'cadence_rrule', label:'Cadence', type:'select', options:CADENCES, value:e.cadence_rrule||'FREQ=DAILY' },
     { key:'target_per_period', label:'Target/period', type:'number', value:e.target_per_period??'' },
     { key:'motivation', label:'Motivation', type:'textarea', value:e.motivation||'' },
-  ], { extraButtons:[{ label:'Archive', kind:'ghost', value:'archived' }] });
+  ], { extraButtons:[{ label:'Delete', kind:'ghost', value:'delete' }, { label:'Archive', kind:'ghost', value:'archived' }] });
   if(!v) return;
+  if(v.__action==='delete'){ if(!confirm('Delete this routine permanently?')) return; await api('/api/records/delete',{id}); toast('deleted','ok'); load(); return; }
   if(v.__action==='archived'){ await api('/api/records/update',{id,state:'archived'}); toast('archived','ok'); load(); return; }
   await api('/api/records/update', { id, headline:v.title, extras:{ ...e, title:v.title, cadence_rrule:v.cadence_rrule, target_per_period:+v.target_per_period||null, motivation:v.motivation||null } });
   toast('saved','ok'); load();

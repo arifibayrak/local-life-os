@@ -98,8 +98,9 @@ async function edit(id){
     { key:'status', label:'Status', type:'select', options:['brainstorm','develop','shipped','archived'], value:e.status||'brainstorm' },
     { key:'body', label:'Detail', type:'textarea', value:e.body||'' },
     { key:'tags', label:'Tags (csv)', value:(e.tags||[]).join(', ') },
-  ], { extraButtons:[{ label:'Archive', kind:'ghost', value:'archive' }] });
+  ], { extraButtons:[{ label:'Delete', kind:'ghost', value:'delete' }, { label:'Archive', kind:'ghost', value:'archive' }] });
   if(!v) return;
+  if(v.__action==='delete'){ if(!confirm('Delete this permanently?')) return; await api('/api/records/delete',{id}); toast('deleted','ok'); load(); return; }
   if(v.__action==='archive'){ await api('/api/records/update',{id,state:'archived'}); toast('archived','ok'); load(); return; }
   await api('/api/records/update', { id, headline:v.title,
     extras:{ body:v.body||null, kind:v.kind, status:v.status, tags:v.tags.split(',').map(s=>s.trim()).filter(Boolean) } });
