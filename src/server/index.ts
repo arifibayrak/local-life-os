@@ -131,7 +131,7 @@ export function startServer(manager: SessionManager, db: DB): void {
         const { messages } = await readJson<{ messages?: ChatMessage[] }>(req);
         if (!messages?.length) return send(res, 400, { error: 'messages required' });
         try {
-          const reply = await chat(messages, { maxTokens: 800 });
+          const reply = await chat(messages, { maxTokens: 1400, temperature: 0.4 });
           return send(res, 200, { reply });
         } catch (e) {
           const status = e instanceof LlmUnavailableError ? 503 : 500;
