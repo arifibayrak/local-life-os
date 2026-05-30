@@ -109,6 +109,9 @@ export function startServer(manager: SessionManager, db: DB): void {
       if (req.method === 'GET' && pathname === '/') {
         return send(res, 200, readFileSync(join(PUBLIC, 'index.html'), 'utf8'), 'text/html');
       }
+      if (req.method === 'GET' && pathname === '/m') {
+        return send(res, 200, readFileSync(join(PUBLIC, 'mobile.html'), 'utf8'), 'text/html');
+      }
       if (req.method === 'GET' && pathname === '/dashboard') {
         return send(res, 200, readFileSync(join(PUBLIC, 'dashboard.html'), 'utf8'), 'text/html');
       }

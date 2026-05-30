@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>life-os · mobile</title>
+<link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+<div class="app" style="max-width:560px">
+  <div class="topbar">
+    <span class="dot" id="dot"></span>
+    <span class="brand">local<span class="accent">·</span>life<span class="accent">·</span>os</span>
+    <a class="nav" style="margin-left:auto;background:none" href="/">full ↗</a>
+  </div>
+
+  <div class="card">
+    <textarea id="box" rows="3" placeholder="Dump a thought, plan, or note…" style="width:100%"></textarea>
+    <div class="formrow" style="margin-top:10px">
+      <button class="btn" id="send">Capture</button>
+      <button class="btn ghost" id="mic">● Voice</button>
+      <button class="btn ghost" id="close" style="margin-left:auto">Review →</button>
+    </div>
+    <p class="statusline" id="status" style="margin:8px 0 0"></p>
+  </div>
+
+  <div id="proposals"></div>
+
+  <div class="card">
+    <h2>Todos <span style="float:right;font-weight:400"><input id="t-title" placeholder="quick add…" style="width:150px"><button class="mini" id="add">＋</button></span></h2>
+    <div id="todos"></div>
+  </div>
+</div>
+
+<script type="module">
+import { $, esc, api, toast } from '/ui.js';
+
+async function health(){ try{ const h=await api('/api/health'); $('#dot').classList.toggle('ok',!!h.llm);}catch{} }
+
+// ---- capture + verify ----
+async function capture(){ const t=$('#box').value.trim(); if(!t)return; $('#box').value=''; $('#status').textContent='captured'; await api('/api/capture',{text:t}); }
+function renderProposals(p){
+  if(!p){ $('#proposals').innerHTML=''; return; }
+  if(!p.records.length){ $('#proposals').innerHTML='<p class="empty">Nothing extracted.</p>'; return; }
+  $('#proposals').innerHTML='<div class="card"><h2>Review</h2>'+p.records.map((r,i)=>`
+    <div class="rec"><div class="top"><strong>${esc(r.headline)}</strong><span class="pill">${esc(r.category)}</span></div>
+    <label style="display:block;margin-top:6px"><input type="checkbox" data-i="${i}" checked> keep</label></div>`).join('')+
+    `<div class="formrow" style="margin-top:10px"><button class="btn" id="save">Save</button><button class="btn ghost" id="skip">Discard</button></div></div>`;
+  $('#save').onclick=async()=>{ const keep=[...$('#proposals').querySelectorAll('input:checked')].map(x=>+x.dataset.i); const r=await api('/api/validate',{approve:keep}); $('#status').textContent=`saved ${r.persisted}`; renderProposals(null); loadTodos(); };
+  $('#skip').onclick=async()=>{ await api('/api/validate',{approve:[]}); renderProposals(null); };
+}
+$('#send').onclick=capture;
+$('#close').onclick=async()=>{ $('#status').textContent='extracting…'; const r=await api('/api/close',{}); renderProposals(r.pending); $('#status').textContent='review'; };
+
+// ---- voice ----
+let rec,chunks=[];
+$('#mic').onclick=async()=>{ try{
+  if(rec&&rec.state==='recording'){ rec.stop(); $('#mic').textContent='● Voice'; return; }
+  if(!window.isSecureContext||!navigator.mediaDevices?.getUserMedia){ $('#status').textContent='mic needs https (use Tailscale) — text works fine'; return; }
+  const s=await navigator.mediaDevices.getUserMedia({audio:true}); rec=new MediaRecorder(s); chunks=[];
+  rec.ondataavailable=e=>chunks.push(e.data);
+  rec.onstop=async()=>{ s.getTracks().forEach(t=>t.stop()); const b=new Blob(chunks,{type:'audio/webm'}); const b64=btoa(String.fromCharCode(...new Uint8Array(await b.arrayBuffer())));
+    $('#status').textContent='transcribing…'; const r=await api('/api/voice',{audioBase64:b64,ext:'webm'}); $('#status').textContent=r.error?('voice: '+r.error):('“'+r.text+'”'); };
+  rec.start(); $('#mic').textContent='■ Stop';
+}catch(e){ $('#status').textContent='mic: '+(e.message||e); } };
+
+// ---- todos ----
+async function loadTodos(){
+  const { records }=await api('/api/records/by?category=tasks');
+  const open=records.filter(r=>r.state!=='done').slice(0,20);
+  $('#todos').innerHTML=open.length?open.map(r=>`<div class="lrow" style="padding:9px 2px">
+    <button class="mini" data-done="${r.id}">○</button>
+    <span class="lmain" style="font-size:14px">${esc(r.headline)} ${r.extras?.category?'<span class="pill">'+esc(r.extras.category)+'</span>':''}</span></div>`).join(''):'<p class="muted" style="font-size:13px">all clear ✓</p>';
+}
+$('#add').onclick=async()=>{ const t=$('#t-title').value.trim(); if(!t)return; await api('/api/records/add',{category:'tasks',headline:t,state:'active',extras:{title:t,priority:'med'}}); $('#t-title').value=''; loadTodos(); };
+$('#todos').addEventListener('click',async e=>{ const b=e.target.closest('button[data-done]'); if(!b)return; await api('/api/records/update',{id:b.dataset.done,state:'done'}); toast('done','ok'); loadTodos(); });
+
+health(); loadTodos();
+</script>
+</body>
+</html>
