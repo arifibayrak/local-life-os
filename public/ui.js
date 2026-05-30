@@ -66,7 +66,7 @@ export function modal(title, fields, opts = {}) {
 /** Structured life categories — shared across modules (todos, etc.). */
 export const LIFE_CATEGORIES = [
   'University', 'Work', 'Development', 'Research', 'Learning', 'Meetings',
-  'Networking', 'Events', 'Foundation', 'Charity', 'Health', 'Finance',
+  'Networking', 'Events', 'Vakıf', 'Charity', 'Health', 'Finance',
   'Family', 'Personal', 'Travel', 'Faith', 'Admin',
 ];
 
