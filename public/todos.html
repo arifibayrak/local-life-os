@@ -15,11 +15,18 @@
 
   <div class="card">
     <div class="formrow">
-      <input id="t-title" placeholder="new task…" style="flex:1;min-width:200px">
+      <input id="t-title" placeholder="new task…" style="flex:1;min-width:180px">
+      <input id="t-cat" list="catlist" placeholder="category" style="width:130px">
+      <datalist id="catlist"><option>Work</option><option>Academic</option><option>Recruiting</option><option>Personal</option><option>Health</option><option>Finance</option><option>Errands</option><option>Hermes</option></datalist>
       <select id="t-prio"><option value="med">med</option><option value="high">high</option><option value="low">low</option></select>
       <input id="t-due" type="date">
       <button class="primary" id="add">Add</button>
     </div>
+  </div>
+
+  <div class="formrow" style="margin:-4px 0 14px">
+    <label class="statusline">Filter</label>
+    <select id="filter" style="width:190px"><option value="">all categories</option></select>
   </div>
 
   <div class="board" id="board"></div>
@@ -33,10 +40,17 @@ const byId = new Map();
 let projects = [];
 const today = new Date().toISOString().slice(0,10);
 
+let allTasks=[], filterCat='';
 async function load(){
   const [{ records }, pr] = await Promise.all([ api('/api/records/by?category=tasks'), api('/api/records/by?category=projects') ]);
-  projects = pr.records;
+  projects = pr.records; allTasks = records;
   byId.clear(); records.forEach(r=>byId.set(r.id,r));
+  const cats=[...new Set(records.map(r=>r.extras?.category).filter(Boolean))].sort();
+  $('#filter').innerHTML='<option value="">all categories</option>'+cats.map(c=>`<option ${c===filterCat?'selected':''}>${esc(c)}</option>`).join('');
+  render();
+}
+function render(){
+  const records = allTasks.filter(r=>!filterCat || r.extras?.category===filterCat);
   $('#board').innerHTML = COLS.map(c=>{
     const items = records.filter(r=>r.state===c.s);
     const head = `<div class="col-head"><h3>${c.label}</h3><span class="count">${items.length}</span>${
@@ -56,10 +70,11 @@ function ticket(r){
   const prio = e.priority ? `<span class="prio ${esc(e.priority)}">${esc(e.priority)}</span>` : '';
   const due = e.due_at ? `<span class="due ${e.due_at.slice(0,10)<today&&r.state!=='done'?'over':''}">⏱ ${e.due_at.slice(0,10)}</span>` : '';
   const rec = e.recurring ? `<span class="pill">↻ ${esc(e.recurring_freq||'recurring')}</span>` : '';
+  const cat = e.category ? `<span class="pill">${esc(e.category)}</span>` : '';
   return `<div class="ticket" draggable="true" data-id="${r.id}">
     <div class="tt">${esc(r.headline)}</div>
     ${e.context?`<div class="muted" style="font-size:12px;margin-top:3px">${esc(e.context)}</div>`:''}
-    <div class="meta">${prio}${due}${rec}</div>
+    <div class="meta">${cat}${prio}${due}${rec}</div>
     <div class="acts"><button class="mini" data-edit="${r.id}">edit</button></div>
   </div>`;
 }
@@ -87,8 +102,8 @@ function wireDnd(){
 $('#add').onclick = async ()=>{
   const title = $('#t-title').value.trim(); if(!title){ toast('title required','err'); return; }
   await api('/api/records/add', { category:'tasks', headline:title, state:'active',
-    extras:{ title, priority:$('#t-prio').value, due_at:$('#t-due').value||null, context:null } });
-  $('#t-title').value=''; $('#t-due').value=''; toast('added','ok'); load();
+    extras:{ title, priority:$('#t-prio').value, due_at:$('#t-due').value||null, context:null, category:$('#t-cat').value||null } });
+  $('#t-title').value=''; $('#t-due').value=''; $('#t-cat').value=''; toast('added','ok'); load();
 };
 
 async function edit(id){
@@ -96,6 +111,7 @@ async function edit(id){
   const linkedProject = ''; // shown as a select to assign
   const v = await modal('Edit task', [
     { key:'title', label:'Title', value:r.headline },
+    { key:'category', label:'Category', value:e.category||'' },
     { key:'priority', label:'Priority', type:'select', options:['low','med','high'], value:e.priority||'med' },
     { key:'due_at', label:'Due', type:'date', value:(e.due_at||'').slice(0,10) },
     { key:'context', label:'Context', type:'textarea', value:e.context||'' },
@@ -106,7 +122,7 @@ async function edit(id){
   if(v.__action==='delete'){ if(!confirm('Delete this task permanently?')) return; await api('/api/records/delete',{id}); toast('deleted','ok'); load(); return; }
   if(v.__action==='archived'){ await api('/api/records/update',{id,state:'archived'}); toast('archived','ok'); load(); return; }
   await api('/api/records/update', { id, headline:v.title, state:v.state,
-    extras:{ ...e, title:v.title, priority:v.priority, due_at:v.due_at||null, context:v.context||null } });
+    extras:{ ...e, title:v.title, priority:v.priority, due_at:v.due_at||null, context:v.context||null, category:v.category||null } });
   if(v.project){ const p = projects.find(p=>p.headline===v.project); if(p){ await api('/api/projects/link',{projectId:p.id,kind:'task',refId:id}); toast('saved + linked to '+v.project,'ok'); } }
   else toast('saved','ok');
   load();
@@ -115,6 +131,7 @@ async function edit(id){
 document.body.addEventListener('click', async (e)=>{
   const ed=e.target.closest('button[data-edit]'); if(ed) edit(ed.dataset.edit);
 });
+$('#filter').addEventListener('change', e=>{ filterCat=e.target.value; render(); });
 load();
 </script>
 </body>
