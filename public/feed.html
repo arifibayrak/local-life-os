@@ -48,19 +48,24 @@ async function load(){
   $('#out').innerHTML = html;
 }
 
+// Recurring feeds reset by frequency: read = last_read within the current period.
+function isRead(freq, last){ if(!last) return false; const d=Math.floor((new Date(today)-new Date(last))/864e5); return freq==='daily' ? d<=0 : d<7; }
+
 function card(r){
   const e=r.extras||{};
+  const isFeed = e.kind==='feed';
+  const read = isFeed ? isRead(e.visit_freq, e.last_read) : (r.state==='done');
   const link = e.url ? `<a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(r.headline||e.url)}</a>` : esc(r.headline);
-  const meta = e.kind==='feed'
-    ? `${e.category?'<span class="pill">'+esc(e.category)+'</span> ':''}${e.visit_freq?'↻ '+esc(e.visit_freq):''}`
+  const meta = isFeed
+    ? `${e.category?'<span class="pill">'+esc(e.category)+'</span> ':''}${e.visit_freq?'↻ '+esc(e.visit_freq):''}${e.last_read?` · last read ${esc(e.last_read)}`:''}`
     : `${e.category?'<span class="pill">'+esc(e.category)+'</span> ':''}${e.research_by?`<span class="due ${e.research_by<today?'over':''}">research by ${e.research_by}</span>`:''}`;
-  const done = r.state==='done';
-  return `<div class="rec" style="${done?'opacity:.55':''}">
-    <div class="top"><strong>${link}</strong>${done?'<span class="badge done">read</span>':''}</div>
+  const badge = read ? `<span class="badge done">read${isFeed&&e.visit_freq==='daily'?' today':''}</span>` : '';
+  return `<div class="rec" style="${read?'opacity:.6':''}">
+    <div class="top"><strong>${link}</strong>${badge}</div>
     <div class="muted" style="font-size:12.5px;margin-top:4px">${meta}</div>
     <div class="acts">
       ${e.url?`<a class="mini" href="${esc(e.url)}" target="_blank" rel="noopener" style="text-decoration:none">open ↗</a>`:''}
-      ${done?'':`<button class="mini" data-done="${r.id}">mark read</button>`}
+      ${read?'':`<button class="mini" data-done="${r.id}">mark read</button>`}
       <button class="mini" data-arch="${r.id}">archive</button>
       <button class="mini" data-del="${r.id}">🗑</button>
     </div>
@@ -84,7 +89,10 @@ $('#add').onclick = async ()=>{
 };
 
 document.body.addEventListener('click', async (e)=>{
-  const d=e.target.closest('button[data-done]'); if(d){ await api('/api/records/update',{id:d.dataset.done,state:'done'}); toast('marked read','ok'); load(); return; }
+  const d=e.target.closest('button[data-done]'); if(d){ const r=byId.get(d.dataset.done), x=r.extras||{};
+    if(x.kind==='feed'){ await api('/api/records/update',{id:d.dataset.done, extras:{...x, last_read:today}}); }
+    else { await api('/api/records/update',{id:d.dataset.done, state:'done'}); }
+    toast('marked read','ok'); load(); return; }
   const a=e.target.closest('button[data-arch]'); if(a){ await api('/api/records/update',{id:a.dataset.arch,state:'archived'}); toast('archived','ok'); load(); return; }
   const dl=e.target.closest('button[data-del]'); if(dl){ if(!confirm('Delete this item permanently?')) return; await api('/api/records/delete',{id:dl.dataset.del}); toast('deleted','ok'); load(); return; }
 });
