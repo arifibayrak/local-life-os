@@ -67,13 +67,17 @@ $('#mic').onclick=async()=>{ try{
 // ---- todos ----
 async function loadTodos(){
   const { records }=await api('/api/records/by?category=tasks');
-  const open=records.filter(r=>r.state!=='done').slice(0,20);
-  $('#todos').innerHTML=open.length?open.map(r=>`<div class="lrow" style="padding:9px 2px">
-    <button class="mini" data-done="${r.id}">○</button>
-    <span class="lmain" style="font-size:14px">${esc(r.headline)} ${r.extras?.category?'<span class="pill">'+esc(r.extras.category)+'</span>':''}</span></div>`).join(''):'<p class="muted" style="font-size:13px">all clear ✓</p>';
+  const cols=[['active','To do'],['doing','Doing'],['done','Done']];
+  $('#todos').innerHTML=cols.map(([s,l])=>{
+    const items=records.filter(r=>r.state===s);
+    return `<div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;margin:12px 0 4px">${l} · ${items.length}</div>`+
+      (items.map(r=>`<div class="lrow" style="padding:8px 2px">
+        <button class="mini" data-cycle="${r.id}" data-s="${r.state}">${s==='done'?'✓':s==='doing'?'◐':'○'}</button>
+        <span class="lmain" style="font-size:14px;${s==='done'?'opacity:.5;text-decoration:line-through':''}">${esc(r.headline)} ${r.extras?.category?'<span class="pill">'+esc(r.extras.category)+'</span>':''}</span></div>`).join('')||'<p class="muted" style="font-size:12px">—</p>');
+  }).join('');
 }
 $('#add').onclick=async()=>{ const t=$('#t-title').value.trim(); if(!t)return; await api('/api/records/add',{category:'tasks',headline:t,state:'active',extras:{title:t,priority:'med'}}); $('#t-title').value=''; loadTodos(); };
-$('#todos').addEventListener('click',async e=>{ const b=e.target.closest('button[data-done]'); if(!b)return; await api('/api/records/update',{id:b.dataset.done,state:'done'}); toast('done','ok'); loadTodos(); });
+$('#todos').addEventListener('click',async e=>{ const b=e.target.closest('button[data-cycle]'); if(!b)return; const next={active:'doing',doing:'done',done:'active'}[b.dataset.s]; await api('/api/records/update',{id:b.dataset.cycle,state:next}); loadTodos(); });
 
 health(); loadTodos();
 </script>
