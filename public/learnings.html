@@ -136,11 +136,15 @@ async function send(text){ if(!text.trim())return;
   catch{ $('#typing')?.remove(); toast('chat failed','err'); } }
 const openDrawer=()=>$('#drawer').classList.add('open'); const closeDrawer=()=>$('#drawer').classList.remove('open');
 $('#open-chat').onclick=openDrawer; $('#close-chat').onclick=closeDrawer;
-function handoff(provider){
+async function handoff(provider){
   const last=[...messages].reverse().find(m=>m.role==='user');
   const text=(last?last.content:'')+'\n\nAnswer using current web information and cite sources.';
   const q=encodeURIComponent(text);
-  if(provider==='gemini'){ navigator.clipboard?.writeText(text).catch(()=>{}); window.open('https://gemini.google.com/app','_blank','noopener'); toast('prompt copied — paste into Gemini','ok'); return; }
+  if(provider==='gemini'){
+    try{ await navigator.clipboard.writeText(text); toast('prompt copied — paste it (Cmd+V) into Gemini','ok'); }
+    catch{ toast('could not copy — select the question and copy manually','err'); }
+    window.open('https://gemini.google.com/app','_blank','noopener'); return;
+  }
   window.open((provider==='claude'?'https://claude.ai/new?q=':'https://chatgpt.com/?q=')+q,'_blank','noopener');
 }
 $('#send').onclick=()=>{ const t=$('#msg').value; $('#msg').value=''; send(t); };
