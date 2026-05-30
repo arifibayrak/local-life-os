@@ -103,9 +103,13 @@ async function addOccurrence(id, where){
   }
 }
 
-// prayer: pull today's London times, add all five
+// prayer: pick a date (default today), pull London times, add all five
 async function addPrayers(where){
-  const pt = await api('/api/prayer-times');
+  const v = await modal('Add prayer times → '+where, [
+    { key:'date', label:'Date', type:'date', value:today() },
+  ], { saveLabel:'Add prayers' });
+  if(!v) return;
+  const pt = await api('/api/prayer-times?date='+v.date);
   if(pt.error){ toast('prayer times: '+pt.error,'err'); return; }
   const order = ['Fajr','Dhuhr','Asr','Maghrib','Isha'];
   let n=0;

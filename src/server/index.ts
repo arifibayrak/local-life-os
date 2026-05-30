@@ -49,6 +49,17 @@ async function today(): Promise<{ date: string; london: unknown; istanbul: unkno
   return { date, london: weatherCache.london, istanbul: weatherCache.istanbul };
 }
 
+/** Wikipedia summary for a topic (safe: only the title is sent). Resolves a fuzzy query first. */
+async function wiki(q: string): Promise<{ found: boolean; title?: string; extract?: string; thumbnail?: string | null; url?: string | null }> {
+  const os = await fetch(`https://en.wikipedia.org/w/api.php?action=opensearch&limit=1&format=json&search=${encodeURIComponent(q)}`, { headers: { 'user-agent': 'local-life-os' } });
+  let title = q;
+  if (os.ok) { const a = (await os.json()) as [string, string[]]; if (a[1]?.[0]) title = a[1][0]; }
+  const r = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`, { headers: { 'user-agent': 'local-life-os' } });
+  if (!r.ok) return { found: false };
+  const j = (await r.json()) as { title?: string; extract?: string; thumbnail?: { source?: string }; content_urls?: { desktop?: { page?: string } } };
+  return { found: !!j.extract, title: j.title, extract: j.extract, thumbnail: j.thumbnail?.source ?? null, url: j.content_urls?.desktop?.page ?? null };
+}
+
 /** Scrape today's London times straight from the Diyanet page (source of truth). */
 async function diyanetLondon(date: string): Promise<{ date: string; source: string; times: Record<string, string> }> {
   const r = await fetch('https://namazvakitleri.diyanet.gov.tr/tr-TR/14096/londra-namaz-vakitleri', { headers: { 'user-agent': 'Mozilla/5.0' } });
@@ -130,6 +141,13 @@ export function startServer(manager: SessionManager, db: DB): void {
       // Today + weather (the only outbound call: city coordinates to open-meteo, no personal data)
       if (req.method === 'GET' && pathname === '/api/today') {
         return send(res, 200, await today());
+      }
+      // Safe topic lookup — only the topic title is sent to Wikipedia (no personal data)
+      if (req.method === 'GET' && pathname === '/api/wiki') {
+        const q = url.searchParams.get('q');
+        if (!q) return send(res, 400, { error: 'q required' });
+        try { return send(res, 200, await wiki(q)); }
+        catch (e) { return send(res, 503, { error: String(e instanceof Error ? e.message : e) }); }
       }
       // London prayer times (Diyanet calculation method via Aladhan) for a date
       if (req.method === 'GET' && pathname === '/api/prayer-times') {

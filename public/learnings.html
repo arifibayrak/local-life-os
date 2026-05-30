@@ -17,25 +17,23 @@
     <div class="formrow">
       <input id="l-title" placeholder="what did you learn? (topic)" style="flex:1;min-width:200px">
       <select id="l-skind"><option value="">source…</option><option>book</option><option>person</option><option>lecture</option><option>article</option><option>podcast</option><option>self</option><option>other</option></select>
-      <input id="l-sname" placeholder="source name" style="width:140px">
-      <input id="l-tags" placeholder="tags (csv)" style="width:140px">
+      <input id="l-sname" placeholder="source name" style="width:130px">
+      <input id="l-tags" placeholder="tags (csv)" style="width:120px">
       <button class="primary" id="add">Add</button>
+      <button class="btn ghost" id="open-chat">🗨 Discuss</button>
     </div>
-    <textarea id="l-summary" rows="2" placeholder="summary / the insight…" style="width:100%;margin-top:8px"></textarea>
+    <textarea id="l-summary" rows="2" placeholder="the insight / summary…" style="width:100%;margin-top:8px"></textarea>
   </div>
 
-  <div class="grid-2">
-    <div id="out"></div>
-    <div class="card">
-      <h2>Discuss with AI <span class="muted" style="float:right;font-weight:400;text-transform:none;letter-spacing:0">local · Qwen</span></h2>
-      <div class="chat">
-        <div class="log" id="log"><div class="msg sys">Ask about a learning, a thought, or how an event/project is going. Click "discuss" on a card to load it here.</div></div>
-        <div class="composer">
-          <textarea id="msg" rows="1" placeholder="type a message…"></textarea>
-          <button class="primary" id="send">Send</button>
-        </div>
-      </div>
-    </div>
+  <div class="col-grid" id="out"></div>
+</div>
+
+<!-- AI chat drawer -->
+<div class="drawer" id="drawer">
+  <div class="dh"><strong>Discuss · <span class="muted" style="font-weight:400">Qwen (local)</span></strong><button class="mini" id="close-chat">✕</button></div>
+  <div class="chat">
+    <div class="log" id="log"><div class="msg sys">Ask about a learning or a thought. "✦ discuss" on a card loads it here.</div></div>
+    <div class="composer"><textarea id="msg" rows="1" placeholder="message…"></textarea><button class="primary" id="send">Send</button></div>
   </div>
 </div>
 
@@ -43,8 +41,8 @@
 import { $, esc, api, toast } from '/ui.js';
 
 const byId = new Map();
-const SYS = { role:'system', content:'You are a sharp, concise study and thinking partner inside the user\'s personal life OS. Discuss their learnings, ideas, and the progress of their events/projects. Ask one or two pointed questions, then offer concrete connections, gaps, or next steps. Be brief and specific.' };
-let messages = [SYS];
+const ICON = { book:'📖', person:'🧑', lecture:'🎓', article:'📰', podcast:'🎧', self:'💡', other:'•' };
+const md = (s)=> esc(s).replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/^\s*[-•]\s*(.+)$/gm,'&nbsp;• $1').replace(/\n/g,'<br>');
 
 async function load(){
   const { records } = await api('/api/records/by?category=learnings');
@@ -54,14 +52,19 @@ async function load(){
 
 function card(r){
   const e=r.extras||{};
-  const src = (e.source_name||e.source_kind) ? `<div class="muted" style="font-size:12.5px">via ${esc([e.source_kind,e.source_name].filter(Boolean).join(' · '))}</div>` : '';
-  const tags = (e.topic_tags||[]).map(t=>`<span class="pill">${esc(t)}</span>`).join(' ');
-  return `<div class="rec">
-    <div class="top"><strong>${esc(r.headline)}</strong></div>
-    ${e.summary?`<div style="font-size:13px;margin-top:4px">${esc(e.summary)}</div>`:''}
-    ${src}
-    ${tags?`<div class="tags" style="margin-top:6px">${tags}</div>`:''}
-    <div class="acts"><button class="mini" data-discuss="${r.id}">discuss</button></div>
+  const icon = ICON[e.source_kind] || '🔖';
+  const src = (e.source_name||e.source_kind) ? `<span class="pill">${icon} ${esc([e.source_kind,e.source_name].filter(Boolean).join(' · '))}</span>` : '';
+  const tags = (e.topic_tags||[]).map(t=>`<span class="pill">#${esc(t)}</span>`).join(' ');
+  return `<div class="rec lcard">
+    <div class="ltitle">${esc(r.headline)}</div>
+    ${e.summary?`<div class="lsum clamp">${esc(e.summary)}</div>`:''}
+    <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:5px">${src}${tags}</div>
+    <div class="acts">
+      <button class="mini" data-explain="${r.id}">✨ explain</button>
+      <button class="mini" data-wiki="${r.id}">🔍 context</button>
+      <button class="mini" data-discuss="${r.id}">✦ discuss</button>
+    </div>
+    <div class="lout" data-out="${r.id}"></div>
   </div>`;
 }
 
@@ -73,36 +76,48 @@ $('#add').onclick = async ()=>{
   ['l-title','l-sname','l-tags','l-summary'].forEach(i=>$('#'+i).value=''); toast('added','ok'); load();
 };
 
-// ---- chat ----
-function render(){
-  $('#log').innerHTML = messages.filter(m=>m.role!=='system').map(m=>`<div class="msg ${m.role==='user'?'user':'ai'}">${esc(m.content)}</div>`).join('')
-    || '<div class="msg sys">start the conversation…</div>';
-  $('#log').scrollTop = 1e9;
-}
-async function send(text){
-  if(!text.trim()) return;
-  messages.push({ role:'user', content:text }); render();
-  $('#log').insertAdjacentHTML('beforeend','<div class="typing" id="typing">thinking…</div>'); $('#log').scrollTop=1e9;
+// ✨ AI explain — standardized breakdown via local Qwen
+async function explain(id){
+  const r=byId.get(id); const box=document.querySelector(`[data-out="${id}"]`);
+  box.innerHTML='<div class="aibox muted">thinking…</div>';
+  const prompt = `Break down this learning concisely in four short labelled parts using **bold** headers and bullets:\n**What it is** — one line.\n**Why it matters** — one line.\n**Key points** — 2-3 bullets.\n**Related concepts** — a few comma-separated.\n\nTopic: "${r.headline}".`+(r.extras?.summary?` My note: ${r.extras.summary}`:'');
   try{
-    const res = await api('/api/chat', { messages });
-    $('#typing')?.remove();
-    if(res.error){ messages.push({role:'assistant',content:'(model error: '+res.error+')'}); }
-    else messages.push({ role:'assistant', content:res.reply });
-    render();
-  }catch(e){ $('#typing')?.remove(); toast('chat failed','err'); }
+    const res=await api('/api/chat',{ messages:[{role:'user',content:prompt}] });
+    box.innerHTML = res.error ? `<div class="aibox">model error: ${esc(res.error)}</div>` : `<div class="aibox">${md(res.reply)}</div>`;
+  }catch{ box.innerHTML='<div class="aibox">failed</div>'; }
 }
-$('#send').onclick = ()=>{ const t=$('#msg').value; $('#msg').value=''; send(t); };
-$('#msg').addEventListener('keydown', e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); $('#send').click(); } });
+
+// 🔍 Wikipedia context (safe — only the topic title is sent)
+async function wiki(id){
+  const r=byId.get(id); const box=document.querySelector(`[data-out="${id}"]`);
+  box.innerHTML='<div class="wikibox muted">looking up…</div>';
+  try{
+    const w=await api('/api/wiki?q='+encodeURIComponent(r.headline));
+    if(w.error||!w.found){ box.innerHTML='<div class="wikibox">no encyclopedia entry found</div>'; return; }
+    box.innerHTML=`<div class="wikibox">${w.thumbnail?`<img src="${esc(w.thumbnail)}" alt="">`:''}
+      <div><strong>${esc(w.title)}</strong><div>${esc(w.extract)}</div>${w.url?`<a href="${esc(w.url)}" target="_blank" rel="noopener">Wikipedia ↗</a>`:''}</div></div>`;
+  }catch{ box.innerHTML='<div class="wikibox">lookup failed</div>'; }
+}
+
+// ✦ Discuss — open drawer seeded with the learning
+let messages=[{role:'system',content:'You are a sharp, concise study partner. Discuss the user\'s learnings and thoughts; ask one pointed question, then give concrete connections and next steps. Be brief.'}];
+function renderChat(){ $('#log').innerHTML = messages.filter(m=>m.role!=='system').map(m=>`<div class="msg ${m.role==='user'?'user':'ai'}">${esc(m.content)}</div>`).join('')||'<div class="msg sys">…</div>'; $('#log').scrollTop=1e9; }
+async function send(text){ if(!text.trim())return; messages.push({role:'user',content:text}); renderChat();
+  $('#log').insertAdjacentHTML('beforeend','<div class="typing" id="typing">thinking…</div>'); $('#log').scrollTop=1e9;
+  try{ const res=await api('/api/chat',{messages}); $('#typing')?.remove(); messages.push({role:'assistant',content:res.error?('(error: '+res.error+')'):res.reply}); renderChat(); }
+  catch{ $('#typing')?.remove(); toast('chat failed','err'); } }
+const openDrawer=()=>$('#drawer').classList.add('open'); const closeDrawer=()=>$('#drawer').classList.remove('open');
+$('#open-chat').onclick=openDrawer; $('#close-chat').onclick=closeDrawer;
+$('#send').onclick=()=>{ const t=$('#msg').value; $('#msg').value=''; send(t); };
+$('#msg').addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); $('#send').click(); } });
 
 document.body.addEventListener('click',(e)=>{
-  const d=e.target.closest('button[data-discuss]'); if(!d) return;
-  const r=byId.get(d.dataset.discuss), x=r.extras||{};
-  messages = [SYS]; render();
-  const seed = `Let's discuss something I learned — "${r.headline}".`+(x.summary?` My note: ${x.summary}`:'')+(x.source_name?` (source: ${x.source_name})`:'');
-  $('#msg').value=''; send(seed);
-  $('#msg').focus();
+  const ex=e.target.closest('button[data-explain]'); if(ex) return explain(ex.dataset.explain);
+  const wk=e.target.closest('button[data-wiki]'); if(wk) return wiki(wk.dataset.wiki);
+  const ds=e.target.closest('button[data-discuss]'); if(ds){ const r=byId.get(ds.dataset.discuss),x=r.extras||{};
+    messages=messages.slice(0,1); renderChat(); openDrawer();
+    send(`Let's discuss "${r.headline}".`+(x.summary?` My note: ${x.summary}`:'')); return; }
 });
-
 load();
 </script>
 </body>

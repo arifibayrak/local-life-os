@@ -234,6 +234,25 @@ tbody tr:hover { background: var(--soft); }
 .cal-now { position: absolute; left: 0; right: 0; height: 2px; background: #e0533c; z-index: 4; }
 .cal-now::before { content: ''; position: absolute; left: -4px; top: -3px; width: 8px; height: 8px; border-radius: 50%; background: #e0533c; }
 
+/* ---- Slide-in drawer (AI chat) ---- */
+.drawer { position: fixed; top: 0; right: 0; height: 100vh; width: min(420px, 94vw); background: var(--surface); border-left: 1px solid var(--line); box-shadow: -10px 0 44px rgba(0,0,0,.18); z-index: 55; transform: translateX(102%); transition: transform .22s ease; display: flex; flex-direction: column; padding: 16px; }
+.drawer.open { transform: none; }
+.drawer .dh { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.drawer .dh strong { font-size: 15px; }
+.drawer .chat { height: auto; flex: 1; min-height: 0; }
+
+/* ---- Learning card extras ---- */
+.lcard .ltitle { font-size: 16px; font-weight: 650; letter-spacing: -.01em; }
+.lcard .lsum { font-size: 13.5px; margin-top: 4px; }
+.clamp { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.lout { margin-top: 10px; }
+.lout:empty { display: none; }
+.aibox { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; font-size: 13px; line-height: 1.55; }
+.aibox strong { color: var(--accent); }
+.wikibox { display: flex; gap: 12px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; font-size: 12.5px; }
+.wikibox img { width: 66px; height: 66px; object-fit: cover; border-radius: 8px; flex: none; }
+.wikibox a { font-size: 11.5px; }
+
 /* ---- AI chat box ---- */
 .chat { display: flex; flex-direction: column; height: 64vh; min-height: 360px; }
 .chat .log { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 9px; padding: 4px 2px; }
