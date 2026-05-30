@@ -49,6 +49,37 @@ async function today(): Promise<{ date: string; london: unknown; istanbul: unkno
   return { date, london: weatherCache.london, istanbul: weatherCache.istanbul };
 }
 
+/** Scrape today's London times straight from the Diyanet page (source of truth). */
+async function diyanetLondon(date: string): Promise<{ date: string; source: string; times: Record<string, string> }> {
+  const r = await fetch('https://namazvakitleri.diyanet.gov.tr/tr-TR/14096/londra-namaz-vakitleri', { headers: { 'user-agent': 'Mozilla/5.0' } });
+  if (!r.ok) throw new Error(`Diyanet HTTP ${r.status}`);
+  const text = (await r.text()).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+  const all = text.match(/[0-2]\d:[0-5]\d/g) ?? [];
+  // The daily table is the first run of 6 strictly-increasing times (Fajr<…<Isha).
+  let w: string[] | null = null;
+  for (let i = 0; i + 6 <= all.length; i++) {
+    const s = all.slice(i, i + 6);
+    const mins = s.map((x) => { const [a, b] = x.split(':'); return +a! * 60 + +b!; });
+    if (mins.every((v, k) => k === 0 || v > mins[k - 1]!) && mins[0]! < 360 && mins[5]! >= 1200) { w = s; break; }
+  }
+  if (!w) throw new Error('could not parse Diyanet times');
+  return { date, source: 'Diyanet London', times: { Fajr: w[0]!, Sunrise: w[1]!, Dhuhr: w[2]!, Asr: w[3]!, Maghrib: w[4]!, Isha: w[5]! } };
+}
+
+/** London prayer times for a date. Diyanet page for today; Aladhan (method=13) otherwise / fallback. */
+async function prayerTimes(date: string): Promise<{ date: string; source: string; times: Record<string, string> }> {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  if (date === todayStr) {
+    try { return await diyanetLondon(date); } catch { /* fall through to Aladhan */ }
+  }
+  const [y, m, d] = date.split('-');
+  const r = await fetch(`https://api.aladhan.com/v1/timingsByCity/${d}-${m}-${y}?city=London&country=United Kingdom&method=13`);
+  if (!r.ok) throw new Error(`prayer-times HTTP ${r.status}`);
+  const t = ((await r.json()) as { data?: { timings?: Record<string, string> } }).data?.timings ?? {};
+  const c = (s: string | undefined) => (s ?? '').slice(0, 5);
+  return { date, source: 'Aladhan (Diyanet method)', times: { Fajr: c(t['Fajr']), Sunrise: c(t['Sunrise']), Dhuhr: c(t['Dhuhr']), Asr: c(t['Asr']), Maghrib: c(t['Maghrib']), Isha: c(t['Isha']) } };
+}
+
 export function startServer(manager: SessionManager, db: DB): void {
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://${config.host}:${config.port}`);
@@ -99,6 +130,12 @@ export function startServer(manager: SessionManager, db: DB): void {
       // Today + weather (the only outbound call: city coordinates to open-meteo, no personal data)
       if (req.method === 'GET' && pathname === '/api/today') {
         return send(res, 200, await today());
+      }
+      // London prayer times (Diyanet calculation method via Aladhan) for a date
+      if (req.method === 'GET' && pathname === '/api/prayer-times') {
+        const date = url.searchParams.get('date') || new Date().toISOString().slice(0, 10);
+        try { return send(res, 200, await prayerTimes(date)); }
+        catch (e) { return send(res, 503, { error: String(e instanceof Error ? e.message : e) }); }
       }
       if (req.method === 'GET' && pathname === '/api/records/by') {
         const category = url.searchParams.get('category');

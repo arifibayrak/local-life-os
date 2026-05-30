@@ -197,6 +197,13 @@ tbody tr:hover { background: var(--soft); }
 .due.over { color: var(--danger); }
 @media (max-width: 760px) { .board { grid-template-columns: 1fr; } }
 
+/* ---- Generic list rows ---- */
+.lrow { display: flex; align-items: center; gap: 12px; padding: 13px 6px; border-bottom: 1px solid var(--soft); }
+.lrow:last-child { border-bottom: 0; }
+.lrow .lmain { flex: 1; min-width: 0; }
+.lrow .lmain .lt { font-weight: 600; }
+.lrow .lacts { display: flex; gap: 6px; flex-wrap: wrap; }
+
 /* ---- Subscriptions ---- */
 .sub { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--soft); font-size: 13.5px; }
 

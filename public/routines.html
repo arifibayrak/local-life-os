@@ -27,7 +27,7 @@
     </div>
   </div>
 
-  <div class="col-grid" id="out"></div>
+  <div class="card"><div id="list"></div></div>
 </div>
 
 <script type="module">
@@ -35,38 +35,37 @@ import { $, esc, api, toast, modal } from '/ui.js';
 
 const byId = new Map();
 const CADENCES = ['FREQ=DAILY','FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR','FREQ=WEEKLY','FREQ=MONTHLY'];
-function human(rrule){
-  if(!rrule) return '—';
-  if(rrule==='FREQ=DAILY') return 'daily';
-  if(rrule==='FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR') return 'weekdays';
-  if(rrule.startsWith('FREQ=WEEKLY;BYDAY=')) return rrule.split('BYDAY=')[1].toLowerCase().replace(/,/g,'/');
-  if(rrule==='FREQ=WEEKLY') return 'weekly';
-  if(rrule==='FREQ=MONTHLY') return 'monthly';
-  return rrule;
-}
+const PRAYER_RE = /pray|namaz|salah|salat|fajr|isha/i;
+const human = (r)=> r==='FREQ=DAILY'?'daily': r==='FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR'?'weekdays': r==='FREQ=WEEKLY'?'weekly': r==='FREQ=MONTHLY'?'monthly': (r||'—');
+const today = ()=> new Date().toISOString().slice(0,10);
+const nextHour = ()=>{ const d=new Date(); return String((d.getHours()+1)%24).padStart(2,'0')+':00'; };
 
 async function load(){
   const { records } = await api('/api/records/by?category=routines');
   byId.clear(); records.forEach(r=>byId.set(r.id,r));
-  $('#out').innerHTML = records.length ? records.map(card).join('') : '<p class="empty">No routines yet. Add one above.</p>';
+  $('#list').innerHTML = records.length ? records.map(row).join('') : '<p class="empty">No routines yet. Add one above.</p>';
 }
 
-function card(r){
+function row(r){
   const e=r.extras||{};
-  return `<div class="rec">
-    <div class="top"><strong>${esc(r.headline)}</strong><span class="pill">↻ ${esc(human(e.cadence_rrule))}</span></div>
-    <div class="muted" style="font-size:12.5px;margin-top:4px">
-      ${e.target_per_period?`target ${e.target_per_period}/period · `:''}${e.occurrence_category?'logs to '+esc(e.occurrence_category):''}</div>
-    ${e.motivation?`<div style="font-size:12.5px;margin-top:4px">“${esc(e.motivation)}”</div>`:''}
-    <div class="acts"><button class="mini" data-edit="${r.id}">edit</button></div>
+  const prayer = PRAYER_RE.test(r.headline+' '+(e.title||''));
+  const sub = [e.target_per_period?`target ${e.target_per_period}/period`:'', e.motivation?`“${e.motivation}”`:''].filter(Boolean).join(' · ');
+  const acts = prayer
+    ? `<button class="mini" data-pray-cal="${r.id}">📅 today's prayers</button><button class="mini" data-pray-todo="${r.id}">▢ todos</button>`
+    : `<button class="mini" data-todo="${r.id}">▢ to todo</button><button class="mini" data-cal="${r.id}">📅 to calendar</button>`;
+  return `<div class="lrow">
+    <div class="lmain">
+      <span class="lt">${esc(r.headline)}</span> <span class="pill">↻ ${esc(human(e.cadence_rrule))}</span>
+      ${sub?`<div class="muted" style="font-size:12.5px;margin-top:2px">${esc(sub)}</div>`:''}
+    </div>
+    <div class="lacts">${acts}<button class="mini" data-edit="${r.id}">edit</button></div>
   </div>`;
 }
 
 $('#add').onclick = async ()=>{
   const title=$('#r-title').value.trim(); if(!title){ toast('title required','err'); return; }
   await api('/api/records/add', { category:'routines', headline:title, state:'active',
-    extras:{ title, cadence_rrule:$('#r-cadence').value, target_per_period:+$('#r-target').value||null,
-      occurrence_category:'tasks', adherence_window_days:1, motivation:null } });
+    extras:{ title, cadence_rrule:$('#r-cadence').value, target_per_period:+$('#r-target').value||null, occurrence_category:'tasks', adherence_window_days:1, motivation:null } });
   $('#r-title').value=''; $('#r-target').value=''; toast('added','ok'); load();
 };
 
@@ -76,17 +75,62 @@ async function edit(id){
     { key:'title', label:'Title', value:r.headline },
     { key:'cadence_rrule', label:'Cadence', type:'select', options:CADENCES, value:e.cadence_rrule||'FREQ=DAILY' },
     { key:'target_per_period', label:'Target/period', type:'number', value:e.target_per_period??'' },
-    { key:'occurrence_category', label:'Logs to', value:e.occurrence_category||'tasks' },
     { key:'motivation', label:'Motivation', type:'textarea', value:e.motivation||'' },
   ], { extraButtons:[{ label:'Archive', kind:'ghost', value:'archived' }] });
   if(!v) return;
   if(v.__action==='archived'){ await api('/api/records/update',{id,state:'archived'}); toast('archived','ok'); load(); return; }
-  await api('/api/records/update', { id, headline:v.title,
-    extras:{ ...e, title:v.title, cadence_rrule:v.cadence_rrule, target_per_period:+v.target_per_period||null, occurrence_category:v.occurrence_category||'tasks', motivation:v.motivation||null } });
+  await api('/api/records/update', { id, headline:v.title, extras:{ ...e, title:v.title, cadence_rrule:v.cadence_rrule, target_per_period:+v.target_per_period||null, motivation:v.motivation||null } });
   toast('saved','ok'); load();
 }
 
-document.body.addEventListener('click',(e)=>{ const b=e.target.closest('button[data-edit]'); if(b) edit(b.dataset.edit); });
+// generic: ask date+time, add one occurrence to todos or calendar
+async function addOccurrence(id, where){
+  const r=byId.get(id);
+  const v = await modal(`Add "${esc(r.headline)}" to ${where}`, [
+    { key:'date', label:'Date', type:'date', value:today() },
+    { key:'time', label:'Time', value:nextHour() },
+  ], { saveLabel:'Add' });
+  if(!v) return;
+  const startISO = new Date(`${v.date}T${(v.time||'09:00')}:00`).toISOString();
+  if(where==='todos'){
+    await api('/api/records/add',{ category:'tasks', headline:r.headline, state:'active', extras:{ title:r.headline, due_at:startISO, priority:'med', context:'routine' } });
+    toast('added to todos','ok');
+  } else {
+    const end = new Date(new Date(startISO).getTime()+30*60000).toISOString();
+    const res = await api('/api/calendar/events',{ summary:r.headline, start:startISO, end });
+    if(res.error){ toast('calendar: '+res.error,'err'); return; }
+    toast('added to calendar','ok');
+  }
+}
+
+// prayer: pull today's London times, add all five
+async function addPrayers(where){
+  const pt = await api('/api/prayer-times');
+  if(pt.error){ toast('prayer times: '+pt.error,'err'); return; }
+  const order = ['Fajr','Dhuhr','Asr','Maghrib','Isha'];
+  let n=0;
+  for(const name of order){
+    const time = pt.times[name]; if(!time) continue;
+    const startISO = new Date(`${pt.date}T${time}:00`).toISOString();
+    if(where==='todos'){
+      await api('/api/records/add',{ category:'tasks', headline:name+' prayer', state:'active', extras:{ title:name+' prayer', due_at:startISO, priority:'high', context:'prayer' } });
+    } else {
+      const end = new Date(new Date(startISO).getTime()+15*60000).toISOString();
+      const res = await api('/api/calendar/events',{ summary:name+' prayer', start:startISO, end });
+      if(res.error){ toast('calendar: '+res.error,'err'); return; }
+    }
+    n++;
+  }
+  toast(`added ${n} prayers (London ${pt.date}) to ${where}`,'ok');
+}
+
+document.body.addEventListener('click',(e)=>{
+  const ed=e.target.closest('button[data-edit]'); if(ed) return edit(ed.dataset.edit);
+  const td=e.target.closest('button[data-todo]'); if(td) return addOccurrence(td.dataset.todo,'todos');
+  const cl=e.target.closest('button[data-cal]'); if(cl) return addOccurrence(cl.dataset.cal,'calendar');
+  const pc=e.target.closest('button[data-pray-cal]'); if(pc) return addPrayers('calendar');
+  const pt=e.target.closest('button[data-pray-todo]'); if(pt) return addPrayers('todos');
+});
 load();
 </script>
 </body>
