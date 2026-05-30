@@ -32,7 +32,12 @@
 <div class="drawer" id="drawer">
   <div class="dh">
     <strong>Discuss · <span class="muted" style="font-weight:400">Qwen (local)</span></strong>
-    <span><button class="mini" id="to-gpt" title="Open this question in ChatGPT for live web search">↗ ChatGPT</button> <button class="mini" id="close-chat">✕</button></span>
+    <span title="Send this question to a cloud model for live web search">
+      <button class="mini" data-llm="claude">↗ Claude</button>
+      <button class="mini" data-llm="chatgpt">↗ ChatGPT</button>
+      <button class="mini" data-llm="gemini">↗ Gemini</button>
+      <button class="mini" id="close-chat">✕</button>
+    </span>
   </div>
   <div class="chat">
     <div class="log" id="log"><div class="msg sys">Ask about a learning or a thought. "✦ discuss" on a card loads it here.</div></div>
@@ -131,11 +136,18 @@ async function send(text){ if(!text.trim())return;
   catch{ $('#typing')?.remove(); toast('chat failed','err'); } }
 const openDrawer=()=>$('#drawer').classList.add('open'); const closeDrawer=()=>$('#drawer').classList.remove('open');
 $('#open-chat').onclick=openDrawer; $('#close-chat').onclick=closeDrawer;
-$('#to-gpt').onclick=()=>{ const last=[...messages].reverse().find(m=>m.role==='user'); const q=encodeURIComponent((last?last.content:'')+'\n\nAnswer using current web information and cite sources.'); window.open('https://chatgpt.com/?q='+q,'_blank','noopener'); };
+function handoff(provider){
+  const last=[...messages].reverse().find(m=>m.role==='user');
+  const text=(last?last.content:'')+'\n\nAnswer using current web information and cite sources.';
+  const q=encodeURIComponent(text);
+  if(provider==='gemini'){ navigator.clipboard?.writeText(text).catch(()=>{}); window.open('https://gemini.google.com/app','_blank','noopener'); toast('prompt copied — paste into Gemini','ok'); return; }
+  window.open((provider==='claude'?'https://claude.ai/new?q=':'https://chatgpt.com/?q=')+q,'_blank','noopener');
+}
 $('#send').onclick=()=>{ const t=$('#msg').value; $('#msg').value=''; send(t); };
 $('#msg').addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); $('#send').click(); } });
 
 document.body.addEventListener('click',(e)=>{
+  const lm=e.target.closest('button[data-llm]'); if(lm) return handoff(lm.dataset.llm);
   const ex=e.target.closest('button[data-explain]'); if(ex) return explain(ex.dataset.explain);
   const wk=e.target.closest('button[data-wiki]'); if(wk) return wiki(wk.dataset.wiki);
   const ds=e.target.closest('button[data-discuss]'); if(ds){ const r=byId.get(ds.dataset.discuss),x=r.extras||{};
