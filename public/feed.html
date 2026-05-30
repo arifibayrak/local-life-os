@@ -25,6 +25,9 @@
     <small class="muted">Read-later items auto-create a todo due in 14 days.</small>
   </div>
 
+  <div class="formrow" style="margin:-4px 0 14px">
+    <label class="statusline" style="margin-left:auto"><input type="checkbox" id="arch"> show archived</label>
+  </div>
   <div id="out"></div>
 </div>
 
@@ -37,7 +40,8 @@ const today = new Date().toISOString().slice(0,10);
 $('#f-kind').addEventListener('change', e=>{ $('#f-freq').style.display = e.target.value==='feed' ? '' : 'none'; });
 
 async function load(){
-  const { records } = await api('/api/records/by?category=feed');
+  const arch = $('#arch')?.checked ? '&archived=1' : '';
+  const { records } = await api('/api/records/by?category=feed'+arch);
   byId.clear(); records.forEach(r=>byId.set(r.id,r));
   if(!records.length){ $('#out').innerHTML='<p class="empty">Nothing saved yet. Add a link to read later or a feed you check regularly.</p>'; return; }
   const later = records.filter(r=>(r.extras?.kind||'readlater')==='readlater');
@@ -66,7 +70,7 @@ function card(r){
     <div class="acts">
       ${e.url?`<a class="mini" href="${esc(e.url)}" target="_blank" rel="noopener" style="text-decoration:none">open ↗</a>`:''}
       ${read?'':`<button class="mini" data-done="${r.id}">mark read</button>`}
-      <button class="mini" data-arch="${r.id}">archive</button>
+      ${r.state==='archived'?`<button class="mini" data-restore="${r.id}">restore</button>`:`<button class="mini" data-arch="${r.id}">archive</button>`}
       <button class="mini" data-del="${r.id}">🗑</button>
     </div>
   </div>`;
@@ -94,8 +98,10 @@ document.body.addEventListener('click', async (e)=>{
     else { await api('/api/records/update',{id:d.dataset.done, state:'done'}); }
     toast('marked read','ok'); load(); return; }
   const a=e.target.closest('button[data-arch]'); if(a){ await api('/api/records/update',{id:a.dataset.arch,state:'archived'}); toast('archived','ok'); load(); return; }
+  const rs=e.target.closest('button[data-restore]'); if(rs){ await api('/api/records/update',{id:rs.dataset.restore,state:'active'}); toast('restored','ok'); load(); return; }
   const dl=e.target.closest('button[data-del]'); if(dl){ if(!confirm('Delete this item permanently?')) return; await api('/api/records/delete',{id:dl.dataset.del}); toast('deleted','ok'); load(); return; }
 });
+$('#arch').addEventListener('change', load);
 wireGroups(); load();
 </script>
 </body>
