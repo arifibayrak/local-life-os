@@ -16,8 +16,8 @@
   <div class="card">
     <div class="formrow">
       <input id="t-title" placeholder="new task…" style="flex:1;min-width:180px">
-      <input id="t-cat" list="catlist" placeholder="category" style="width:130px">
-      <datalist id="catlist"><option>Work</option><option>Academic</option><option>Recruiting</option><option>Personal</option><option>Health</option><option>Finance</option><option>Errands</option><option>Hermes</option></datalist>
+      <input id="t-cat" list="catlist" placeholder="category" style="width:140px">
+      <datalist id="catlist"></datalist>
       <select id="t-prio"><option value="med">med</option><option value="high">high</option><option value="low">low</option></select>
       <input id="t-due" type="date">
       <button class="primary" id="add">Add</button>
@@ -33,8 +33,9 @@
 </div>
 
 <script type="module">
-import { $, esc, api, toast, modal } from '/ui.js';
+import { $, esc, api, toast, modal, LIFE_CATEGORIES } from '/ui.js';
 
+$('#catlist').innerHTML = LIFE_CATEGORIES.map(c=>`<option>${c}</option>`).join('');
 const COLS = [{ s:'active', label:'To do' }, { s:'doing', label:'Doing' }, { s:'done', label:'Done' }];
 const byId = new Map();
 let projects = [];
@@ -111,7 +112,7 @@ async function edit(id){
   const linkedProject = ''; // shown as a select to assign
   const v = await modal('Edit task', [
     { key:'title', label:'Title', value:r.headline },
-    { key:'category', label:'Category', value:e.category||'' },
+    { key:'category', label:'Category', type:'select', options:['', ...LIFE_CATEGORIES, ...(e.category && !LIFE_CATEGORIES.includes(e.category)?[e.category]:[])], value:e.category||'' },
     { key:'priority', label:'Priority', type:'select', options:['low','med','high'], value:e.priority||'med' },
     { key:'due_at', label:'Due', type:'date', value:(e.due_at||'').slice(0,10) },
     { key:'context', label:'Context', type:'textarea', value:e.context||'' },

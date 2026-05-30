@@ -63,6 +63,13 @@ export function modal(title, fields, opts = {}) {
   });
 }
 
+/** Structured life categories — shared across modules (todos, etc.). */
+export const LIFE_CATEGORIES = [
+  'University', 'Work', 'Development', 'Research', 'Learning', 'Meetings',
+  'Networking', 'Events', 'Foundation', 'Charity', 'Health', 'Finance',
+  'Family', 'Personal', 'Travel', 'Faith', 'Admin',
+];
+
 /** Render the shared top nav into <nav id="nav">, highlighting the current page.
  *  Add a module here once and it appears on every page. */
 const NAV = [
