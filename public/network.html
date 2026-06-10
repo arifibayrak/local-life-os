@@ -15,6 +15,8 @@
 
   <div class="cards" id="stats"></div>
 
+  <div id="reconnect"></div>
+
   <div class="card">
     <div class="formrow">
       <input id="c-name" placeholder="name" style="width:150px">
@@ -48,6 +50,8 @@ async function load(){
     <div class="stat"><div class="k">Active · Warm</div><div class="v in">${dist.active} · ${dist.warm}</div></div>
     <div class="stat"><div class="k">Cold · Dormant</div><div class="v">${dist.cold} · ${dist.dormant}</div></div>`;
 
+  await loadReconnect();
+
   if(!all.length){ $('#out').innerHTML = '<p class="empty">No contacts yet. Add someone above.</p>'; return; }
   $('#out').innerHTML = groups.map(g=>{
     const d = { active:0, warm:0, cold:0, dormant:0 };
@@ -55,6 +59,29 @@ async function load(){
     const summary = ['active','warm','cold','dormant'].filter(k=>d[k]).map(k=>`<span class="strength ${k}">${d[k]}</span>`).join(' ');
     return groupBlock(g.circle, g.count, g.contacts.map(renderContact).join(''), summary);
   }).join('');
+}
+
+async function loadReconnect(){
+  const { contacts } = await api('/api/contacts/reconnect');
+  const box = $('#reconnect');
+  if(!contacts.length){ box.innerHTML=''; return; }
+  const rows = contacts.map(c=>{
+    const since = Number.isFinite(c.days_since) ? `${c.days_since}d ago` : 'never';
+    return `<div class="sub"><span>⭐ <strong>${esc(c.name)}</strong> <span class="muted" style="font-size:12px">${esc([c.role,c.company].filter(Boolean).join(' · '))}</span> <span class="strength ${c.strength}" style="font-size:11px">${c.strength}</span></span>
+      <span class="muted" style="font-size:12px">last: ${since}</span>
+      <button class="mini" data-log="${c.id}">+ log</button></div>`;
+  }).join('');
+  box.innerHTML = `<section class="card" style="border-color:var(--accent)">
+    <h2>Reconnect <span class="count">${contacts.length}</span>
+      <button class="mini" id="gen-followups" style="float:right">generate follow-up tasks</button></h2>
+    <div class="muted" style="font-size:12.5px;margin-bottom:8px">Priority contacts who have slipped out of “active”. Generate proposes reconnect todos for review.</div>
+    ${rows}
+  </section>`;
+  $('#gen-followups').onclick = async ()=>{
+    const r = await api('/api/contacts/propose-reconnects', {});
+    if(r.proposed) toast(`proposed ${r.proposed} reconnect task${r.proposed===1?'':'s'} (review in Todos)`,'ok');
+    else toast(`nothing new — ${r.skipped} already pending`,'');
+  };
 }
 
 function renderContact(c){
@@ -75,7 +102,7 @@ function renderContact(c){
     : 'no interactions logged';
   return `<div class="contact">
     <div class="ctop">
-      <div><div class="cname">${esc(c.name)}</div>${roleLine}</div>
+      <div><div class="cname">${c.priority?'⭐ ':''}${esc(c.name)}</div>${roleLine}</div>
       <span class="strength ${c.strength}">${c.strength}</span>
     </div>
     ${kvHtml?`<dl class="kv">${kvHtml}</dl>`:''}
@@ -123,12 +150,14 @@ async function editContact(id){
     { key:'birthday', label:'Birthday', type:'date', value:c.birthday },
     { key:'contact_group', label:'Group', value:c.contact_group },
     { key:'tags', label:'Tags (csv)', value:(c.tags||[]).join(', ') },
+    { key:'priority', label:'Priority (keep warm)', type:'select', options:['no','yes'], value:c.priority?'yes':'no' },
     { key:'strength_override', label:'Strength', type:'select', options:STRENGTHS, value:c.strength_override },
     { key:'notes', label:'Notes', type:'textarea', value:c.notes },
   ], { extraButtons:[{ label:'Delete', kind:'ghost', value:'delete' }] });
   if(!v) return;
   if(v.__action==='delete'){ await api('/api/contacts/delete',{id}); toast('deleted','ok'); load(); return; }
   v.tags = v.tags.split(',').map(t=>t.trim()).filter(Boolean);
+  v.priority = v.priority==='yes' ? 1 : 0;
   await api('/api/contacts/update', { id, ...v });
   toast('saved','ok'); load();
 }

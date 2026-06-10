@@ -72,6 +72,17 @@ export function addRecord(db: DB, r: NewRecord): string {
   return id;
 }
 
+/** Fetch a single record by id (extras parsed), or null. Category-agnostic. */
+export function getRecord(db: DB, id: string): RecordRow | null {
+  const r = db
+    .prepare(`SELECT id, category, headline, notes, extras, state, created_at FROM records WHERE id = ?`)
+    .get(id) as (Omit<RecordRow, 'extras'> & { extras: string }) | undefined;
+  if (!r) return null;
+  let extras: Record<string, unknown> = {};
+  try { extras = JSON.parse(r.extras) as Record<string, unknown>; } catch { /* ignore */ }
+  return { ...r, extras };
+}
+
 /** Records of one category, newest first (archived/dismissed hidden unless asked). */
 export function listByCategory(db: DB, category: string, opts?: { includeArchived?: boolean }): RecordRow[] {
   const filter = opts?.includeArchived ? '' : `AND state NOT IN ('archived','dismissed')`;

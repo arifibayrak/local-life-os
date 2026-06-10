@@ -127,6 +127,13 @@ const MIGRATIONS: string[] = [
   CREATE UNIQUE INDEX IF NOT EXISTS uniq_project_link ON project_links(project_id, kind, ref_id);
   CREATE INDEX IF NOT EXISTS idx_project_links_project ON project_links(project_id);
   `,
+  // v5: network CRM — mark a contact as "priority" so the Reconnect view + follow-up
+  // automation can surface important relationships that are going stale. Runs once
+  // (gated by user_version), so a plain ADD COLUMN is safe.
+  `
+  ALTER TABLE contacts ADD COLUMN priority INTEGER NOT NULL DEFAULT 0;
+  CREATE INDEX IF NOT EXISTS idx_contacts_priority ON contacts(priority);
+  `,
 ];
 
 export function openDb(): DB {

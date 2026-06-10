@@ -21,6 +21,7 @@ export interface Contact {
   circle: string;
   tags: string[];
   notes: string;
+  priority: number;            // 1 = important relationship to keep warm
   strength_override: string;
   last_interaction_date: string;
   last_interaction_note: string;
@@ -49,7 +50,7 @@ export function computeStrength(lastDate: string, override: string): Strength {
 function rowToContact(r: Record<string, unknown>): Contact {
   let tags: string[] = [];
   try { tags = JSON.parse(String(r['tags'] ?? '[]')); } catch { /* ignore */ }
-  return { ...(r as unknown as Contact), tags };
+  return { ...(r as unknown as Contact), tags, priority: Number(r['priority'] ?? 0) };
 }
 
 export function addContact(db: DB, input: ContactInput): Contact {
@@ -61,13 +62,14 @@ export function addContact(db: DB, input: ContactInput): Contact {
     phone: input.phone ?? '', linkedin: input.linkedin ?? '', met_where: input.met_where ?? '',
     met_date: input.met_date ?? '', birthday: input.birthday ?? '', contact_freq: input.contact_freq ?? '',
     contact_group: input.contact_group ?? '', circle: input.circle ?? 'other',
-    tags: input.tags ?? [], notes: input.notes ?? '', strength_override: input.strength_override ?? '',
+    tags: input.tags ?? [], notes: input.notes ?? '', priority: Number(input.priority ?? 0) ? 1 : 0,
+    strength_override: input.strength_override ?? '',
     last_interaction_date: input.last_interaction_date ?? '', last_interaction_note: input.last_interaction_note ?? '',
     created_at: now, updated_at: now,
   };
   db.prepare(
-    `INSERT INTO contacts (id,name,role,company,email,phone,linkedin,met_where,met_date,birthday,contact_freq,contact_group,circle,tags,notes,strength_override,last_interaction_date,last_interaction_note,created_at,updated_at)
-     VALUES (@id,@name,@role,@company,@email,@phone,@linkedin,@met_where,@met_date,@birthday,@contact_freq,@contact_group,@circle,@tags,@notes,@strength_override,@last_interaction_date,@last_interaction_note,@created_at,@updated_at)`,
+    `INSERT INTO contacts (id,name,role,company,email,phone,linkedin,met_where,met_date,birthday,contact_freq,contact_group,circle,tags,notes,priority,strength_override,last_interaction_date,last_interaction_note,created_at,updated_at)
+     VALUES (@id,@name,@role,@company,@email,@phone,@linkedin,@met_where,@met_date,@birthday,@contact_freq,@contact_group,@circle,@tags,@notes,@priority,@strength_override,@last_interaction_date,@last_interaction_note,@created_at,@updated_at)`,
   ).run({ ...row, tags: JSON.stringify(row.tags) });
   return row;
 }
@@ -76,11 +78,11 @@ export function updateContact(db: DB, id: string, patch: ContactInput): Contact 
   const existing = db.prepare(`SELECT * FROM contacts WHERE id=?`).get(id) as Record<string, unknown> | undefined;
   if (!existing) return null;
   const cur = rowToContact(existing);
-  const next: Contact = { ...cur, ...patch, tags: patch.tags ?? cur.tags, id, updated_at: new Date().toISOString() };
+  const next: Contact = { ...cur, ...patch, tags: patch.tags ?? cur.tags, priority: Number(patch.priority ?? cur.priority) ? 1 : 0, id, updated_at: new Date().toISOString() };
   db.prepare(
     `UPDATE contacts SET name=@name,role=@role,company=@company,email=@email,phone=@phone,linkedin=@linkedin,
        met_where=@met_where,met_date=@met_date,birthday=@birthday,contact_freq=@contact_freq,contact_group=@contact_group,
-       circle=@circle,tags=@tags,notes=@notes,strength_override=@strength_override,
+       circle=@circle,tags=@tags,notes=@notes,priority=@priority,strength_override=@strength_override,
        last_interaction_date=@last_interaction_date,last_interaction_note=@last_interaction_note,updated_at=@updated_at WHERE id=@id`,
   ).run({ ...next, tags: JSON.stringify(next.tags) });
   return next;
@@ -132,4 +134,33 @@ export function listContacts(db: DB): CircleGroup[] {
 export function getInteractions(db: DB, contactId: string): Array<{ date: string; type: string; note: string }> {
   return db.prepare(`SELECT date,type,note FROM contact_interactions WHERE contact_id=? ORDER BY date DESC LIMIT 50`)
     .all(contactId) as Array<{ date: string; type: string; note: string }>;
+}
+
+/** Days since the last logged interaction (Infinity if never). */
+export function daysSince(lastDate: string): number {
+  if (!lastDate) return Infinity;
+  return Math.floor((Date.now() - new Date(lastDate).getTime()) / 86_400_000);
+}
+
+export interface ReconnectItem extends ContactView { days_since: number }
+
+/**
+ * "Who to reconnect with": priority contacts whose relationship has slipped out of
+ * `active` (warm/cold/dormant), staleest first. These are the relationships worth a
+ * deliberate nudge — see follow-up automation in `network/followups.ts`.
+ */
+export function reconnectList(db: DB): ReconnectItem[] {
+  const counts = new Map<string, number>();
+  for (const r of db.prepare(`SELECT contact_id, count(*) c FROM contact_interactions GROUP BY contact_id`).all() as Array<{ contact_id: string; c: number }>) {
+    counts.set(r.contact_id, r.c);
+  }
+  const rows = db.prepare(`SELECT * FROM contacts WHERE priority = 1`).all() as Record<string, unknown>[];
+  return rows
+    .map((raw) => {
+      const c = rowToContact(raw);
+      const strength = computeStrength(c.last_interaction_date, c.strength_override);
+      return { ...c, strength, interactions: counts.get(c.id) ?? 0, days_since: daysSince(c.last_interaction_date) } as ReconnectItem;
+    })
+    .filter((c) => c.strength !== 'active')
+    .sort((a, b) => b.days_since - a.days_since);
 }
