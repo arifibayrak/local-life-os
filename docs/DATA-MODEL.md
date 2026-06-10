@@ -93,8 +93,17 @@ Subscription-leaning categories: `subscription, streaming, ai_tools, telecom, bi
 - `captures.session_id → sessions.id` (live)
 - `records.session_id → sessions.id` (live)
 - `payments.project_id → records.id` where category=`projects` (column exists; UI link planned)
-- **Hub pattern (planned, from brain):** `projects`/`events` become hubs with join tables
-  linking their own todos, payments (budget), and people met. See [ROADMAP.md](./ROADMAP.md).
+- `project_links(project_id, kind, ref_id)` joins **any hub** (`projects` OR `events`) to its
+  linked `task`/`payment`/`contact`/`event` rows. `project_id` is really a hub id.
+- **Hub pattern (live):** both `projects` and `events` are hubs. `src/projects/store.ts`
+  exposes the category-agnostic `listHubs(db, category)` / `hubDetail(db, hubId)`
+  (`listProjects`/`projectDetail` are thin back-compat wrappers). Events render a detail
+  page (attendees + follow-ups + budget) at `/events`; `addPeopleToHub` powers the
+  "log an event + everyone I met" bulk flow (`POST /api/events/people`).
+- **Networking CRM:** `contacts.priority` (v5) marks important relationships. `reconnectList`
+  surfaces priority contacts that have slipped out of `active`; `src/network/followups.ts`
+  `proposeReconnects` creates `proposed` reconnect tasks (deduped via
+  `extras.reconnect_contact_id`) that flow through the normal approve/skip loop.
 
 ## Data lifecycle (states)
 
