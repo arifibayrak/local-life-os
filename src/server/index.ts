@@ -11,8 +11,9 @@ import { transcribe, TranscriptionUnavailable } from '../scribe/whisper.js';
 import { listRecords, setRecordState, addRecord, listByCategory, updateRecord, deleteRecord } from '../vault/records.js';
 import { addPayment, addPaymentsBulk, listPayments, deletePayment, updatePayment, analytics, listSubscriptions } from '../finance/store.js';
 import { parseStatement, sanitizeCategory } from '../finance/import.js';
-import { listContacts, addContact, updateContact, deleteContact, logInteraction, getInteractions } from '../network/store.js';
-import { listProjects, projectDetail, linkEntity, unlinkEntity, type LinkKind } from '../projects/store.js';
+import { listContacts, addContact, updateContact, deleteContact, logInteraction, getInteractions, reconnectList } from '../network/store.js';
+import { proposeReconnects } from '../network/followups.js';
+import { listProjects, projectDetail, listHubs, hubDetail, addPeopleToHub, linkEntity, unlinkEntity, type LinkKind, type BulkPerson } from '../projects/store.js';
 import { isConnected as gcalConnected, googleConfigured } from '../google/auth.js';
 import { listEvents as gcalList, createEvent as gcalCreate } from '../google/calendar.js';
 import type { DB } from '../vault/db.js';
@@ -249,6 +250,30 @@ export function startServer(manager: SessionManager, db: DB): void {
         return send(res, 200, { ok: unlinkEntity(db, projectId, kind, refId) });
       }
 
+      // ---- Event hubs (events are hubs too: attendees + follow-ups + budget) ----
+      if (req.method === 'GET' && pathname === '/api/events') {
+        const includeArchived = url.searchParams.get('archived') === '1';
+        return send(res, 200, { events: listHubs(db, 'events', { includeArchived }) });
+      }
+      if (req.method === 'GET' && pathname === '/api/events/detail') {
+        const id = url.searchParams.get('id');
+        if (!id) return send(res, 400, { error: 'id required' });
+        return send(res, 200, hubDetail(db, id));
+      }
+      // Bulk-add the people met at an event (create contacts + link + log + follow-ups).
+      if (req.method === 'POST' && pathname === '/api/events/people') {
+        const { eventId, people, metWhere, metDate } = await readJson<{ eventId?: string; people?: BulkPerson[]; metWhere?: string; metDate?: string }>(req);
+        if (!eventId || !Array.isArray(people) || !people.length) return send(res, 400, { error: 'eventId and people[] required' });
+        return send(res, 200, addPeopleToHub(db, eventId, people, { metWhere, metDate }));
+      }
+      // Generic hub link/unlink (works for any hub id; events and projects alike).
+      if (req.method === 'POST' && (pathname === '/api/hub/link' || pathname === '/api/hub/unlink')) {
+        const { hubId, kind, refId } = await readJson<{ hubId?: string; kind?: LinkKind; refId?: string }>(req);
+        if (!hubId || !kind || !refId) return send(res, 400, { error: 'hubId, kind, refId required' });
+        const ok = pathname === '/api/hub/link' ? linkEntity(db, hubId, kind, refId) : unlinkEntity(db, hubId, kind, refId);
+        return send(res, 200, { ok });
+      }
+
       // ---- Google Calendar (cloud-connected, opt-in) ----
       if (req.method === 'GET' && pathname === '/calendar') {
         return send(res, 200, readFileSync(join(PUBLIC, 'calendar.html'), 'utf8'), 'text/html');
@@ -275,6 +300,13 @@ export function startServer(manager: SessionManager, db: DB): void {
       }
       if (req.method === 'GET' && pathname === '/api/contacts') {
         return send(res, 200, { groups: listContacts(db) });
+      }
+      if (req.method === 'GET' && pathname === '/api/contacts/reconnect') {
+        return send(res, 200, { contacts: reconnectList(db) });
+      }
+      if (req.method === 'POST' && pathname === '/api/contacts/propose-reconnects') {
+        const { state } = await readJson<{ state?: string }>(req);
+        return send(res, 200, proposeReconnects(db, { state }));
       }
       if (req.method === 'GET' && pathname === '/api/contacts/interactions') {
         const id = url.searchParams.get('id');

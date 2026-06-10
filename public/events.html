@@ -13,55 +13,58 @@
     <nav class="nav" id="nav"></nav>
   </div>
 
-  <div class="card">
-    <div class="formrow">
-      <input id="e-title" placeholder="event…" style="flex:1;min-width:180px">
-      <select id="e-type"></select>
-      <input id="e-date" type="date">
-      <input id="e-loc" placeholder="location" style="width:140px">
-      <button class="primary" id="add">Add</button>
+  <div id="listview">
+    <div class="card">
+      <div class="formrow">
+        <input id="e-title" placeholder="event…" style="flex:1;min-width:180px">
+        <select id="e-type"></select>
+        <input id="e-date" type="date">
+        <input id="e-loc" placeholder="location" style="width:140px">
+        <button class="primary" id="add">Add</button>
+      </div>
     </div>
+    <div id="out"></div>
   </div>
 
-  <div id="out"></div>
+  <div id="detailview" style="display:none"></div>
 </div>
 
 <script type="module">
-import { $, esc, api, toast, modal, wireGroups, groupBlock } from '/ui.js';
+import { $, esc, api, toast, modal, wireGroups, groupBlock, money } from '/ui.js';
 
-const TYPES = ['trip','dinner','conference','talk','sport','celebration','meeting','social','milestone','other'];
-const byId = new Map();
-let contacts = [];
+const TYPES = ['meetup','trip','dinner','conference','talk','sport','celebration','meeting','social','milestone','other'];
+const CATS = ["groceries","restaurants","transport","travel","education","housing","utilities","telecom","bills","clothing","household","tech","subscription","streaming","ai_tools","credit_cards","entertainment","health","gifts","investment","fees","income","other"];
 const today = new Date().toISOString().slice(0,10);
+let allContacts = [];
 
 $('#e-type').innerHTML = TYPES.map(t=>`<option>${t}</option>`).join('');
 
-async function load(){
-  const [{ records }, cg] = await Promise.all([ api('/api/records/by?category=events'), api('/api/contacts') ]);
-  contacts = cg.groups.flatMap(g=>g.contacts);
-  byId.clear(); records.forEach(r=>byId.set(r.id,r));
-  if(!records.length){ $('#out').innerHTML='<p class="empty">No events yet. Add one above.</p>'; return; }
+async function loadList(){
+  $('#detailview').style.display='none'; $('#listview').style.display='';
+  const { events } = await api('/api/events');
+  if(!events.length){ $('#out').innerHTML='<p class="empty">No events yet. Add one above.</p>'; return; }
   const start = r => (r.extras?.start_at||'').slice(0,10);
-  const upcoming = records.filter(r=>!start(r) || start(r)>=today).sort((a,b)=>start(a).localeCompare(start(b)));
-  const past = records.filter(r=>start(r) && start(r)<today).sort((a,b)=>start(b).localeCompare(start(a)));
+  const upcoming = events.filter(r=>!start(r) || start(r)>=today).sort((a,b)=>start(a).localeCompare(start(b)));
+  const past = events.filter(r=>start(r) && start(r)<today).sort((a,b)=>start(b).localeCompare(start(a)));
   let html='';
   if(upcoming.length) html += groupBlock('upcoming', upcoming.length, upcoming.map(card).join(''));
   if(past.length) html += groupBlock('past', past.length, past.map(card).join(''));
   $('#out').innerHTML = html;
 }
 
+function budgetStr(b){ const e=Object.entries(b); return e.length? e.map(([c,v])=>money(v,c)).join(' + ') : '—'; }
+
 function card(r){
   const e = r.extras||{};
   const when = e.start_at ? e.start_at.slice(0,10)+(e.end_at&&e.end_at.slice(0,10)!==e.start_at.slice(0,10)?' → '+e.end_at.slice(0,10):'') : 'no date';
-  const people = (e.attended_with||[]).map(p=>`<span class="pill">${esc(p)}</span>`).join(' ');
-  return `<div class="rec">
+  return `<div class="rec" data-open="${r.id}" style="cursor:pointer">
     <div class="top"><strong>${esc(r.headline)}</strong>${e.kind?`<span class="pill">${esc(e.kind)}</span>`:''}</div>
     <div class="muted" style="font-size:12.5px">📅 ${when}${e.location?' · 📍 '+esc(e.location):''}</div>
     ${r.notes?`<div style="font-size:13px;margin-top:5px">${esc(r.notes)}</div>`:''}
-    ${people?`<div class="tags" style="margin-top:6px">${people}</div>`:''}
-    <div class="acts">
-      <button class="mini" data-person="${r.id}">+ person</button>
-      <button class="mini" data-edit="${r.id}">edit</button>
+    <div class="meta" style="display:flex;gap:12px;margin-top:10px;font-size:12.5px;color:var(--muted)">
+      <span>👥 ${r.people}</span>
+      <span>✓ ${r.todos.open}/${r.todos.total} follow-ups</span>
+      <span>💷 ${budgetStr(r.budget)}</span>
     </div>
   </div>`;
 }
@@ -70,55 +73,165 @@ $('#add').onclick = async ()=>{
   const title=$('#e-title').value.trim(); if(!title){ toast('title required','err'); return; }
   await api('/api/records/add', { category:'events', headline:title, state:'active', notes:null,
     extras:{ title, kind:$('#e-type').value, start_at:$('#e-date').value||null, end_at:null, location:$('#e-loc').value||null, attended_with:[] } });
-  $('#e-title').value=''; $('#e-date').value=''; $('#e-loc').value=''; toast('added','ok'); load();
+  $('#e-title').value=''; $('#e-date').value=''; $('#e-loc').value=''; toast('added','ok'); loadList();
 };
 
-async function edit(id){
-  const r=byId.get(id), e=r.extras||{};
+async function openEvent(id){
+  const d = await api('/api/events/detail?id='+id);
+  if(!allContacts.length){ const { groups } = await api('/api/contacts'); allContacts = groups.flatMap(g=>g.contacts); }
+  const linkedIds = new Set(d.contacts.map(c=>c.id));
+  const e = d.hub?.extras||{};
+  const when = e.start_at ? e.start_at.slice(0,10)+(e.end_at&&e.end_at.slice(0,10)!==e.start_at.slice(0,10)?' → '+e.end_at.slice(0,10):'') : 'no date';
+  $('#listview').style.display='none';
+  const dv = $('#detailview'); dv.style.display='';
+  dv.innerHTML = `
+    <p><a href="#" id="back">← all events</a></p>
+    <div class="card">
+      <div class="top" style="display:flex;justify-content:space-between;align-items:baseline">
+        <h2 style="margin:0;font-size:18px;text-transform:none;letter-spacing:-.01em;color:var(--text)">${esc(d.hub?.headline||'')}</h2>
+        <span>${e.kind?`<span class="pill">${esc(e.kind)}</span> `:''}<button class="mini" id="edit-ev">edit</button> <button class="mini" id="del-ev">🗑 delete</button></span>
+      </div>
+      <div class="muted" style="margin-top:4px;font-size:12.5px">📅 ${when}${e.location?' · 📍 '+esc(e.location):''}</div>
+      ${d.hub?.notes?`<div class="muted" style="margin-top:6px">${esc(d.hub.notes)}</div>`:''}
+    </div>
+
+    <div class="card">
+      <h2>People <span style="float:right"><button class="mini" id="bulk-people">+ bulk paste</button> <button class="mini" id="add-person">+ person</button></span></h2>
+      <div id="d-people"></div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <h2>Follow-ups <button class="mini" id="add-todo" style="float:right">+ follow-up</button></h2>
+        <div id="d-todos"></div>
+      </div>
+      <div class="card">
+        <h2>Budget <button class="mini" id="add-exp" style="float:right">+ expense</button></h2>
+        <div id="d-budget"></div>
+      </div>
+    </div>`;
+
+  const strengthFromLast = (ld)=>{ if(!ld) return 'dormant'; const days=Math.floor((Date.now()-new Date(ld).getTime())/86400000); return days<=30?'active':days<=90?'warm':days<=180?'cold':'dormant'; };
+  $('#d-people').innerHTML = d.contacts.length ? d.contacts.map(c=>{
+    const st = strengthFromLast(c.last_interaction_date);
+    const star = c.priority? '⭐ ' : '';
+    return `<div class="sub"><span>${star}<strong>${esc(c.name)}</strong> <span class="muted" style="font-size:12px">${esc([c.role,c.company].filter(Boolean).join(' · '))}</span> <span class="strength ${st}" style="font-size:11px">${st}</span></span><span></span>
+      <button class="mini" data-unlink="contact:${c.id}">×</button></div>`;
+  }).join('') : '<small class="muted">no people linked yet — use “+ person” or “+ bulk paste”</small>';
+
+  $('#d-todos').innerHTML = d.todos.length ? d.todos.map(t=>`
+    <div class="sub"><span><span class="badge ${esc(t.state)}">${esc(t.state)}</span> ${esc(t.headline)}${t.extras?.priority?` <span class="pill">${esc(t.extras.priority)}</span>`:''}</span><span></span>
+      <button class="mini" data-unlink="task:${t.id}">×</button></div>`).join('') : '<small class="muted">no follow-ups linked</small>';
+
+  $('#d-budget').innerHTML = (Object.keys(d.budget).length?`<div style="margin-bottom:8px">${Object.entries(d.budget).map(([c,v])=>`<span class="pill">${money(v,c)}</span>`).join(' ')}</div>`:'') +
+    (d.payments.length ? d.payments.map(p=>`
+    <div class="sub"><span>${esc(p.vendor||p.category)} <span class="pill">${esc(p.category)}</span></span>
+      <span class="num">${money(p.amount,p.currency)}</span>
+      <button class="mini" data-unlink="payment:${p.id}">×</button></div>`).join('') : '<small class="muted">no expenses linked</small>');
+
+  $('#back').onclick = (ev)=>{ ev.preventDefault(); loadList(); };
+  $('#del-ev').onclick = async ()=>{ if(!confirm('Delete this event? (linked people/follow-ups/expenses stay; only the links are removed)')) return; await api('/api/records/delete',{id}); toast('event deleted','ok'); loadList(); };
+  $('#edit-ev').onclick = ()=> editEvent(id, d.hub, e);
+  $('#add-person').onclick = ()=> addPerson(id, e, linkedIds);
+  $('#bulk-people').onclick = ()=> bulkPeople(id, e);
+  $('#add-todo').onclick = ()=> addTodo(id, e);
+  $('#add-exp').onclick = ()=> addExpense(id, e);
+  dv.querySelectorAll('button[data-unlink]').forEach(b=> b.onclick = async ()=>{
+    const [kind,refId]=b.dataset.unlink.split(':'); await api('/api/hub/unlink',{ hubId:id, kind, refId }); toast('unlinked','ok'); openEvent(id);
+  });
+}
+
+async function editEvent(id, hub, e){
   const v = await modal('Edit event', [
-    { key:'title', label:'Title', value:r.headline },
+    { key:'title', label:'Title', value:hub.headline },
     { key:'kind', label:'Type', type:'select', options:TYPES, value:e.kind||'other' },
     { key:'start_at', label:'Start', type:'date', value:(e.start_at||'').slice(0,10) },
     { key:'end_at', label:'End', type:'date', value:(e.end_at||'').slice(0,10) },
     { key:'location', label:'Location', value:e.location||'' },
-    { key:'notes', label:'Detail / context', type:'textarea', value:r.notes||'' },
-  ], { extraButtons:[{ label:'Delete', kind:'ghost', value:'delete' }, { label:'Archive', kind:'ghost', value:'archived' }] });
+    { key:'notes', label:'Detail / context', type:'textarea', value:hub.notes||'' },
+  ], { extraButtons:[{ label:'Archive', kind:'ghost', value:'archived' }] });
   if(!v) return;
-  if(v.__action==='delete'){ if(!confirm('Delete this event permanently?')) return; await api('/api/records/delete',{id}); toast('deleted','ok'); load(); return; }
-  if(v.__action==='archived'){ await api('/api/records/update',{id,state:'archived'}); toast('archived','ok'); load(); return; }
+  if(v.__action==='archived'){ await api('/api/records/update',{id,state:'archived'}); toast('archived','ok'); loadList(); return; }
   await api('/api/records/update', { id, headline:v.title, notes:v.notes||null,
     extras:{ ...e, title:v.title, kind:v.kind, start_at:v.start_at||null, end_at:v.end_at||null, location:v.location||null } });
-  toast('saved','ok'); load();
+  toast('saved','ok'); openEvent(id);
 }
 
-// Add a person from the network, or create a new contact in both network + this event.
-async function addPerson(id){
-  const r=byId.get(id), e=r.extras||{};
-  const here = new Set(e.attended_with||[]);
-  const opts = ['', ...contacts.filter(c=>!here.has(c.name)).map(c=>c.name)];
-  const v = await modal('Add person to "'+esc(r.headline)+'"', [
-    { key:'existing', label:'From network', type:'select', options:opts, value:'' },
+// Link an existing contact, or create a new one in the network and link it.
+async function addPerson(id, e, linkedIds){
+  const opts = ['', ...allContacts.filter(c=>!linkedIds.has(c.id)).map(c=>c.name+' '+c.id)];
+  const v = await modal('Add person', [
+    { key:'existing', label:'From network', type:'select', options:opts.map(o=>o.split(' ')[0]), value:'' },
     { key:'newname', label:'…or new person', value:'' },
+    { key:'role', label:'Role (new)', value:'' },
+    { key:'company', label:'Company (new)', value:'' },
+    { key:'priority', label:'Priority?', type:'select', options:['no','yes'], value:'no' },
   ], { saveLabel:'Add' });
   if(!v) return;
-  let name = v.newname.trim() || v.existing;
-  if(!name){ return; }
   if(v.newname.trim()){
-    // create in network too
-    await api('/api/contacts', { name:v.newname.trim(), circle:'friends', met_where:r.headline });
-    toast('added to network + event','ok');
-  } else toast('added','ok');
-  const attended_with = [...(e.attended_with||[]), name];
-  await api('/api/records/update', { id, extras:{ ...e, attended_with } });
-  contacts = (await api('/api/contacts')).groups.flatMap(g=>g.contacts);
-  load();
+    const { contact } = await api('/api/contacts', { name:v.newname.trim(), role:v.role, company:v.company, circle:'professional', met_where:e.title||'', met_date:(e.start_at||'').slice(0,10), priority: v.priority==='yes'?1:0 });
+    await api('/api/hub/link', { hubId:id, kind:'contact', refId:contact.id });
+    allContacts.push(contact); toast('added + linked','ok');
+  } else if(v.existing){
+    const match = opts.find(o=>o.split(' ')[0]===v.existing);
+    const cid = match? match.split(' ')[1] : null;
+    if(cid){ await api('/api/hub/link', { hubId:id, kind:'contact', refId:cid }); toast('linked','ok'); }
+  } else return;
+  openEvent(id);
 }
 
-document.body.addEventListener('click',(e)=>{
-  const p=e.target.closest('button[data-person]'); if(p) return addPerson(p.dataset.person);
-  const b=e.target.closest('button[data-edit]'); if(b) return edit(b.dataset.edit);
-});
-wireGroups(); load();
+// The "log an event + everyone I met" flow: paste one person per line.
+async function bulkPeople(id, e){
+  const v = await modal('Bulk add people', [
+    { key:'lines', label:'One per line — Name | company | note', type:'textarea', value:'' },
+    { key:'attended', label:'Attendance', type:'select', options:['yes','no','unsure'], value:'yes' },
+    { key:'priority', label:'Mark all priority?', type:'select', options:['no','yes'], value:'no' },
+    { key:'followups', label:'Create a follow-up task each?', type:'select', options:['no','yes'], value:'no' },
+  ], { saveLabel:'Add all' });
+  if(!v || !v.lines.trim()) return;
+  const people = v.lines.split('\n').map(l=>l.trim()).filter(Boolean).map(line=>{
+    const [name, company, note] = line.split('|').map(s=>(s||'').trim());
+    return {
+      name, company: company||'', note: note||'',
+      attended: v.attended,
+      priority: v.priority==='yes',
+      followup: v.followups==='yes' ? `Follow up with ${name}` : '',
+    };
+  });
+  if(!people.length) return;
+  const r = await api('/api/events/people', { eventId:id, people, metWhere:e.title||'', metDate:(e.start_at||'').slice(0,10) });
+  allContacts = (await api('/api/contacts')).groups.flatMap(g=>g.contacts);
+  toast(`added ${r.contacts} people${r.tasks?` + ${r.tasks} follow-ups`:''}`,'ok');
+  openEvent(id);
+}
+
+async function addTodo(id, e){
+  const v = await modal('New follow-up for this event', [
+    { key:'title', label:'Title' },
+    { key:'priority', label:'Priority', type:'select', options:['low','med','high'], value:'med' },
+    { key:'due_at', label:'Due', type:'date' },
+  ], { saveLabel:'Add' });
+  if(!v||!v.title) return;
+  const { id: tid } = await api('/api/records/add',{ category:'tasks', headline:v.title, state:'active',
+    extras:{ title:v.title, priority:v.priority, due_at:v.due_at||null, context:e.title||null } });
+  await api('/api/hub/link',{ hubId:id, kind:'task', refId:tid }); toast('follow-up added','ok'); openEvent(id);
+}
+
+async function addExpense(id, e){
+  const v = await modal('New expense for this event', [
+    { key:'amount', label:'Amount', type:'number' },
+    { key:'currency', label:'Currency', type:'select', options:['GBP','TRY','USD','EUR'], value:'GBP' },
+    { key:'category', label:'Category', type:'select', options:CATS, value:'other' },
+    { key:'vendor', label:'Vendor' },
+    { key:'date', label:'Date', type:'date', value:new Date().toISOString().slice(0,10) },
+  ], { saveLabel:'Add' });
+  if(!v||!v.amount) return;
+  const { payment } = await api('/api/finance',{ amount:+v.amount, currency:v.currency, category:v.category, vendor:v.vendor, date:v.date, direction:'out' });
+  await api('/api/hub/link',{ hubId:id, kind:'payment', refId:payment.id }); toast('expense added','ok'); openEvent(id);
+}
+
+document.body.addEventListener('click',(e)=>{ const c=e.target.closest('[data-open]'); if(c && !e.target.closest('button')) openEvent(c.dataset.open); });
+wireGroups(); loadList();
 </script>
 </body>
 </html>
